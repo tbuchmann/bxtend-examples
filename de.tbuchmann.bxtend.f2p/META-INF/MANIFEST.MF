@@ -1,0 +1,12 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: de.tbuchmann.bxtend.f2p
+Bundle-SymbolicName: de.tbuchmann.bxtend.f2p; singleton:=true
+Bundle-Version: 1.0.0
+Require-Bundle:  org.eclipse.emf.ecore,
+ Families,
+ Persons,
+ org.eclipse.xtext.xbase.lib,
+ org.eclipse.xtend.lib,
+ org.eclipse.xtend.lib.macro,
+ de.ubt.ai1.m2m.bxtend

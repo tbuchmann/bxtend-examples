@@ -1,0 +1,16 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: de.tbuchmann.bxtend.bag12bag2
+Bundle-SymbolicName: de.tbuchmann.bxtend.bag12bag2; singleton:=true
+Bundle-Version: 1.0.0
+Export-Package: de.tbuchmann.bxtend.bag12bag2.correspondence.bag12bag2,
+ de.tbuchmann.bxtend.bag12bag2.correspondence.bag12bag2.impl,
+ de.tbuchmann.bxtend.bag12bag2.correspondence.bag12bag2.util,
+ de.tbuchmann.bxtend.bag12bag2.rules
+Require-Bundle: org.eclipse.emf.ecore,
+ org.eclipse.xtext.xbase.lib,
+ org.eclipse.xtend.lib,
+ org.eclipse.xtend.lib.macro,
+ de.ubt.ai1.m2m.bxtend,
+ Bag1;bundle-version="0.1.0",
+ Bag2;bundle-version="0.1.0"

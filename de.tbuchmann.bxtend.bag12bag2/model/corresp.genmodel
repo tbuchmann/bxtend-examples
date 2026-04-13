@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<genmodel:GenModel xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore"
+    xmlns:genmodel="http://www.eclipse.org/emf/2002/GenModel" modelDirectory="de.tbuchmann.bxtend.bag12bag2/src" modelName="Corresp"
+    importerID="org.eclipse.emf.importer.ecore" complianceLevel="7.0" copyrightFields="false">
+  <foreignModel>corresp.ecore</foreignModel>
+  <genPackages prefix="Bag12bag2" basePackage="de.tbuchmann.bxtend.bag12bag2.correspondence"
+      disposableProviderFactory="true" ecorePackage="corresp.ecore#/">
+    <genClasses ecoreClass="corresp.ecore#//Transformation">
+      <genFeatures property="None" children="true" createChild="true" ecoreFeature="ecore:EReference corresp.ecore#//Transformation/correspondences"/>
+    </genClasses>
+    <genClasses ecoreClass="corresp.ecore#//Corr">
+      <genFeatures notify="false" createChild="false" propertySortChoices="true" ecoreFeature="ecore:EReference corresp.ecore#//Corr/sourceElement"/>
+      <genFeatures notify="false" createChild="false" propertySortChoices="true" ecoreFeature="ecore:EReference corresp.ecore#//Corr/targetElement"/>
+      <genFeatures createChild="false" ecoreFeature="ecore:EAttribute corresp.ecore#//Corr/desc"/>
+    </genClasses>
+    <genClasses ecoreClass="corresp.ecore#//MultiElem">
+      <genFeatures notify="false" createChild="false" propertySortChoices="true" ecoreFeature="ecore:EReference corresp.ecore#//MultiElem/sourceElements"/>
+    </genClasses>
+    <genClasses ecoreClass="corresp.ecore#//BasicElem"/>
+  </genPackages>
+</genmodel:GenModel>

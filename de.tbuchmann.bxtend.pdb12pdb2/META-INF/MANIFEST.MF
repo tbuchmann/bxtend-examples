@@ -1,0 +1,12 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: de.tbuchmann.bxtend.pdb12pdb2
+Bundle-SymbolicName: de.tbuchmann.bxtend.pdb12pdb2; singleton:=true
+Bundle-Version: 1.0.0
+Require-Bundle: org.eclipse.emf.ecore,
+ org.eclipse.xtext.xbase.lib,
+ org.eclipse.xtend.lib,
+ org.eclipse.xtend.lib.macro,
+ de.ubt.ai1.m2m.bxtend,
+ PDB1;bundle-version="1.0.0",
+ PDB2;bundle-version="1.0.0"
