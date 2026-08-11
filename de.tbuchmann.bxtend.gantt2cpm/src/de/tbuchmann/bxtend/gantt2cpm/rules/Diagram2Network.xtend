@@ -58,12 +58,12 @@ class Diagram2Network extends Elem2Elem {
 	 *   <li>Ensure the network is added to the target resource's content root.</li>
 	 * </ol>
 	 */
-	override void sourceToTarget() {		
-		val diag = sourceModel.contents.get(0) as GanttDiagram 
- 		
- 		var net = diag.getOrCreateCorrModelElement(ruleID).
- 				getOrCreateTargetElem(targetPackage.CPMNetwork) as CPMNetwork => [name = diag.name]
+	override void sourceToTarget() {
+		val diag = sourceModel.contents.get(0) as GanttDiagram
+ 		val corr = diag.getOrCreateCorrModelElement(ruleID)
+ 		var net = corr.getOrCreateTargetElem(targetPackage.CPMNetwork) as CPMNetwork => [name = diag.name]
  		targetModel.contents += net
+ 		corrToName.put(corr, diag.name)
 		//super.sourceToTarget()
 	}
 	
@@ -82,9 +82,64 @@ class Diagram2Network extends Elem2Elem {
 	 */
 	override void targetToSource() {
 		val net = targetModel.contents.get(0) as CPMNetwork
-		var diag = net.getOrCreateCorrModelElement(ruleID).
-				getOrCreateSourceElem(sourcePackage.ganttDiagram) as GanttDiagram => [name = net.name]
+		val corr = net.getOrCreateCorrModelElement(ruleID)
+		var diag = corr.getOrCreateSourceElem(sourcePackage.ganttDiagram) as GanttDiagram => [name = net.name]
 		sourceModel.contents += diag
+		corrToName.put(corr, diag.name)
 		//super.targetToSource()
+	}
+
+	/**
+	 * Reconciles the root {@code GanttDiagram} ↔ {@code CPMNetwork} pair.
+	 *
+	 * <p>Both models are single-root, so there is normally at most one unmatched
+	 * element per side (e.g. after loading two previously unrelated models for
+	 * the first time, or after a delete/recreate cycle). Algorithm:</p>
+	 * <ol>
+	 *   <li>If the diagram is already linked, either push its (changed) name to
+	 *       the network or pull the network's name back into the diagram,
+	 *       depending on which side changed since the last synchronisation
+	 *       (tracked via {@link #corrToName}).</li>
+	 *   <li>If unlinked, try to re-link to an unmatched network with the same
+	 *       name; otherwise create a new network from the diagram.</li>
+	 *   <li>Any network still unmatched afterwards is used to create a new
+	 *       diagram (target-side insertion).</li>
+	 * </ol>
+	 */
+	override void synch() {
+		val diagList = sourceModel.contents.filter(typeof(GanttDiagram)).toList
+		val unmatchedNets = targetModel.contents.filter(typeof(CPMNetwork)).filter[n | n.corrModelElem === null].toList
+
+		diagList.forEach [ diag |
+			val corr = diag.getOrCreateCorrModelElement(ruleID)
+			var net = corr.targetElement as CPMNetwork
+			if (net !== null) {
+				unmatchedNets.remove(net)
+				if (corrToName.get(corr) != diag.name)
+					net.name = diag.name
+				else
+					diag.name = net.name
+			} else {
+				net = unmatchedNets.findFirst[n | n.name == diag.name]
+				if (net !== null) {
+					corr.targetElement = net
+					elementsToCorr.put(net, corr)
+					unmatchedNets.remove(net)
+				} else {
+					net = corr.getOrCreateTargetElem(targetPackage.CPMNetwork) as CPMNetwork => [name = diag.name]
+					if (!targetModel.contents.contains(net))
+						targetModel.contents += net
+				}
+			}
+			corrToName.put(corr, diag.name)
+		]
+
+		unmatchedNets.forEach [ net |
+			val corr = net.getOrCreateCorrModelElement(ruleID)
+			val diag = corr.getOrCreateSourceElem(sourcePackage.ganttDiagram) as GanttDiagram => [name = net.name]
+			if (!sourceModel.contents.contains(diag))
+				sourceModel.contents += diag
+			corrToName.put(corr, diag.name)
+		]
 	}
 }

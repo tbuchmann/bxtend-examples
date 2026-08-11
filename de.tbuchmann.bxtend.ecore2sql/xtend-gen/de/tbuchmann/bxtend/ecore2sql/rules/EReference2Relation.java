@@ -488,6 +488,185 @@ public class EReference2Relation extends Class2Table {
   }
 
   /**
+   * Reconciles concurrent edits: re-runs {@link #sourceToTarget()} (idempotent — handles
+   * updates and reshaping between Column/Table representations for existing references, and
+   * creates SQL elements for new source references), then absorbs any
+   * {@code "cross"}/{@code "containment"}-annotated {@link Column}/{@link Table} that still
+   * has no correspondence at all — a genuine target-side insertion — using the same logic as
+   * {@link #targetToSource()}.
+   */
+  @Override
+  public void synch() {
+    this.sourceToTarget();
+    final Function1<Column, Boolean> _function = (Column it) -> {
+      final Function1<Annotation, Boolean> _function_1 = (Annotation it_1) -> {
+        return Boolean.valueOf((Objects.equals(it_1.getAnnotation(), "cross") || Objects.equals(it_1.getAnnotation(), "containment")));
+      };
+      return Boolean.valueOf(IterableExtensions.<Annotation>exists(it.getOwnedAnnotations(), _function_1));
+    };
+    final Function1<Column, Boolean> _function_1 = (Column it) -> {
+      Corr _corrModelElem = this.getCorrModelElem(it);
+      return Boolean.valueOf((_corrModelElem == null));
+    };
+    final Procedure1<Column> _function_2 = (Column col) -> {
+      final Corr corr = this.getOrCreateCorrModelElement(col, this.ruleID);
+      EObject _orCreateSourceElem = this.getOrCreateSourceElem(corr, this.sourcePackage.getEReference());
+      final EReference ref = ((EReference) _orCreateSourceElem);
+      EObject _eContainer = col.eContainer();
+      EObject _sourceElement = this.getCorrModelElem(((Table) _eContainer)).getSourceElement();
+      final EClass sourceClass = ((EClass) _sourceElement);
+      EObject _eContainer_1 = col.eContainer();
+      final Function1<ForeignKey, Boolean> _function_3 = (ForeignKey it) -> {
+        Column _column = it.getColumn();
+        return Boolean.valueOf(Objects.equals(_column, col));
+      };
+      EObject _sourceElement_1 = this.getCorrModelElem(IterableExtensions.<ForeignKey>findFirst(((Table) _eContainer_1).getOwnedForeignKeys(), _function_3).getReferencedTable()).getSourceElement();
+      final EClass targetClass = ((EClass) _sourceElement_1);
+      int _xifexpression = (int) 0;
+      final Function1<Annotation, Boolean> _function_4 = (Annotation it) -> {
+        String _annotation = it.getAnnotation();
+        return Boolean.valueOf(Objects.equals(_annotation, "single"));
+      };
+      boolean _exists = IterableExtensions.<Annotation>exists(col.getOwnedAnnotations(), _function_4);
+      if (_exists) {
+        _xifexpression = 1;
+      } else {
+        _xifexpression = (-1);
+      }
+      ref.setUpperBound(_xifexpression);
+      final Function1<Annotation, Boolean> _function_5 = (Annotation it) -> {
+        String _annotation = it.getAnnotation();
+        return Boolean.valueOf(Objects.equals(_annotation, "containment"));
+      };
+      boolean _exists_1 = IterableExtensions.<Annotation>exists(col.getOwnedAnnotations(), _function_5);
+      if (_exists_1) {
+        ref.setContainment(true);
+        final Function1<Annotation, Boolean> _function_6 = (Annotation it) -> {
+          String _annotation = it.getAnnotation();
+          return Boolean.valueOf(Objects.equals(_annotation, "bidirectional"));
+        };
+        boolean _exists_2 = IterableExtensions.<Annotation>exists(col.getOwnedAnnotations(), _function_6);
+        if (_exists_2) {
+          ref.setName(col.getName().split("_")[2]);
+          final Function1<EReference, Boolean> _function_7 = (EReference r) -> {
+            String _name = r.getName();
+            Object _get = col.getName().split("_")[0];
+            return Boolean.valueOf(Objects.equals(_name, _get));
+          };
+          EReference invRef = IterableExtensions.<EReference>findFirst(sourceClass.getEReferences(), _function_7);
+          if ((invRef == null)) {
+            EObject _createSourceElement = this.createSourceElement(this.sourcePackage.getEReference());
+            invRef = ((EReference) _createSourceElement);
+          }
+          invRef.setName(col.getName().split("_")[0]);
+          invRef.setEType(targetClass);
+          ref.setEOpposite(invRef);
+          invRef.setEOpposite(ref);
+          EList<EStructuralFeature> _eStructuralFeatures = sourceClass.getEStructuralFeatures();
+          _eStructuralFeatures.add(invRef);
+        } else {
+          EReference _eOpposite = ref.getEOpposite();
+          boolean _tripleNotEquals = (_eOpposite != null);
+          if (_tripleNotEquals) {
+            EcoreUtil.delete(ref.getEOpposite(), true);
+          }
+          ref.setName(col.getName().split("_")[0]);
+        }
+        ref.setEType(sourceClass);
+        EList<EStructuralFeature> _eStructuralFeatures_1 = targetClass.getEStructuralFeatures();
+        _eStructuralFeatures_1.add(ref);
+      } else {
+        ref.setName(col.getName());
+        ref.setEType(targetClass);
+        EList<EStructuralFeature> _eStructuralFeatures_2 = sourceClass.getEStructuralFeatures();
+        _eStructuralFeatures_2.add(ref);
+      }
+    };
+    IteratorExtensions.<Column>forEach(IteratorExtensions.<Column>filter(IteratorExtensions.<Column>filter(Iterators.<Column>filter(this.targetModel.getAllContents(), Column.class), _function), _function_1), _function_2);
+    final Function1<Table, Boolean> _function_3 = (Table t) -> {
+      final Function1<Annotation, Boolean> _function_4 = (Annotation a) -> {
+        return Boolean.valueOf((Objects.equals(a.getAnnotation(), "cross") || Objects.equals(a.getAnnotation(), "containment")));
+      };
+      return Boolean.valueOf(IterableExtensions.<Annotation>exists(t.getOwnedAnnotations(), _function_4));
+    };
+    final Function1<Table, Boolean> _function_4 = (Table it) -> {
+      Corr _corrModelElem = this.getCorrModelElem(it);
+      return Boolean.valueOf((_corrModelElem == null));
+    };
+    final Procedure1<Table> _function_5 = (Table tab) -> {
+      final Corr corr = this.getOrCreateCorrModelElement(tab, this.ruleID);
+      EObject _orCreateSourceElem = this.getOrCreateSourceElem(corr, this.sourcePackage.getEReference());
+      final EReference ref = ((EReference) _orCreateSourceElem);
+      int _xifexpression = (int) 0;
+      final Function1<Annotation, Boolean> _function_6 = (Annotation it) -> {
+        String _annotation = it.getAnnotation();
+        return Boolean.valueOf(Objects.equals(_annotation, "forwardSingle"));
+      };
+      boolean _exists = IterableExtensions.<Annotation>exists(tab.getOwnedAnnotations(), _function_6);
+      if (_exists) {
+        _xifexpression = 1;
+      } else {
+        _xifexpression = (-1);
+      }
+      ref.setUpperBound(_xifexpression);
+      final Function1<Annotation, Boolean> _function_7 = (Annotation it) -> {
+        String _annotation = it.getAnnotation();
+        return Boolean.valueOf(Objects.equals(_annotation, "unidirectional"));
+      };
+      boolean _exists_1 = IterableExtensions.<Annotation>exists(tab.getOwnedAnnotations(), _function_7);
+      if (_exists_1) {
+        ref.setName(tab.getName().split("_")[1]);
+        final Function1<ForeignKey, Boolean> _function_8 = (ForeignKey f) -> {
+          String _name = f.getColumn().getName();
+          return Boolean.valueOf(Objects.equals(_name, "reference"));
+        };
+        EObject _sourceElement = this.getCorrModelElem(IterableExtensions.<ForeignKey>findFirst(tab.getOwnedForeignKeys(), _function_8).getReferencedTable()).getSourceElement();
+        ref.setEType(((EClass) _sourceElement));
+        final EClass parentEClass = this.findClassByName(tab.getName().split("_")[0]);
+        EList<EStructuralFeature> _eStructuralFeatures = parentEClass.getEStructuralFeatures();
+        _eStructuralFeatures.add(ref);
+        EReference _eOpposite = ref.getEOpposite();
+        boolean _tripleNotEquals = (_eOpposite != null);
+        if (_tripleNotEquals) {
+          EcoreUtil.delete(ref.getEOpposite(), true);
+          ref.setEOpposite(null);
+        }
+      } else {
+        ref.setName(tab.getName().split("_")[1]);
+        final EClass sourceEClass = this.findClassByName(tab.getName().split("_")[0]);
+        final EClass targetEClass = this.findClassByName(tab.getName().split("_")[3]);
+        ref.setEType(targetEClass);
+        EReference invRef = ref.getEOpposite();
+        if ((invRef == null)) {
+          EObject _createSourceElement = this.createSourceElement(this.sourcePackage.getEReference());
+          invRef = ((EReference) _createSourceElement);
+        }
+        invRef.setName(tab.getName().split("_")[4]);
+        int _xifexpression_1 = (int) 0;
+        final Function1<Annotation, Boolean> _function_9 = (Annotation it) -> {
+          String _annotation = it.getAnnotation();
+          return Boolean.valueOf(Objects.equals(_annotation, "backwardSingle"));
+        };
+        boolean _exists_2 = IterableExtensions.<Annotation>exists(tab.getOwnedAnnotations(), _function_9);
+        if (_exists_2) {
+          _xifexpression_1 = 1;
+        } else {
+          _xifexpression_1 = (-1);
+        }
+        invRef.setUpperBound(_xifexpression_1);
+        invRef.setEType(sourceEClass);
+        invRef.setEOpposite(ref);
+        ref.setEOpposite(invRef);
+        EList<EStructuralFeature> _eStructuralFeatures_1 = sourceEClass.getEStructuralFeatures();
+        _eStructuralFeatures_1.add(ref);
+        EList<EStructuralFeature> _eStructuralFeatures_2 = targetEClass.getEStructuralFeatures();
+        _eStructuralFeatures_2.add(invRef);
+      }
+    };
+    IteratorExtensions.<Table>forEach(IteratorExtensions.<Table>filter(IteratorExtensions.<Table>filter(Iterators.<Table>filter(this.targetModel.getAllContents(), Table.class), _function_3), _function_4), _function_5);
+  }
+
+  /**
    * Overrides the standard {@link Elem2Elem#getOrCreateTargetElem} to support the dynamic
    * choice between a {@link Column} target and a {@link Table} target.
    * 

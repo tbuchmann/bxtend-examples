@@ -7,11 +7,15 @@ import cpm.Event;
 import de.tbuchmann.bxtend.gantt2cpm.correspondence.gantt2cpm.Corr;
 import gantt.Activity;
 import gantt.GanttDiagram;
+import java.util.List;
+import java.util.Objects;
+import java.util.function.Consumer;
 import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.xtext.xbase.lib.Functions.Function1;
+import org.eclipse.xtext.xbase.lib.IterableExtensions;
 import org.eclipse.xtext.xbase.lib.IteratorExtensions;
 import org.eclipse.xtext.xbase.lib.ObjectExtensions;
 import org.eclipse.xtext.xbase.lib.Procedures.Procedure1;
@@ -104,6 +108,8 @@ public class Activity2Activity extends Elem2Elem {
       EList<Element> _elements_2 = net.getElements();
       Event _targetEvent = target.getTargetEvent();
       _elements_2.add(_targetEvent);
+      Elem2Elem.corrToName.put(corr, a.getName());
+      Elem2Elem.corrToDuration.put(corr, Integer.valueOf(target.getDuration()));
     };
     IteratorExtensions.<Activity>forEach(Iterators.<Activity>filter(this.sourceModel.getAllContents(), Activity.class), _function);
   }
@@ -142,8 +148,125 @@ public class Activity2Activity extends Elem2Elem {
       final GanttDiagram diag = ((GanttDiagram) _sourceElement);
       EList<gantt.Element> _elements = diag.getElements();
       _elements.add(source);
+      Elem2Elem.corrToName.put(corr, source.getName());
+      Elem2Elem.corrToDuration.put(corr, Integer.valueOf(source.getDuration()));
     };
     IteratorExtensions.<cpm.Activity>forEach(IteratorExtensions.<cpm.Activity>filter(Iterators.<cpm.Activity>filter(this.targetModel.getAllContents(), cpm.Activity.class), _function), _function_1);
+  }
+
+  /**
+   * Reconciles concurrent edits to plain {@code gantt.Activity} /
+   * {@code cpm.Activity} pairs (dependency arcs are excluded and handled by
+   * {@link Dependency2Activity#synch()}).
+   * 
+   * <p>Algorithm, mirroring {@link Diagram2Network#synch()}:</p>
+   * <ol>
+   *   <li>Collect CPM activities without a correspondence yet into
+   *       {@code unmatched}.</li>
+   *   <li>For each Gantt activity: if already linked, resolve {@code name} and
+   *       {@code duration} independently against the last-known snapshot
+   *       ({@link #corrToName}/{@link #corrToDuration}) — each attribute is
+   *       pushed forward if it changed on the source, pulled backward if it
+   *       only changed on the target, and left as-is (source wins) if both
+   *       changed. Name additionally drives re-linking to a same-named
+   *       unmatched activity, or creation of a new one, when unlinked.</li>
+   *   <li>Any CPM activity still unmatched afterwards is treated as a
+   *       target-side insertion and transformed into a new Gantt activity.</li>
+   * </ol>
+   */
+  @Override
+  public void synch() {
+    final List<Activity> actList = IteratorExtensions.<Activity>toList(Iterators.<Activity>filter(this.sourceModel.getAllContents(), Activity.class));
+    final Function1<cpm.Activity, Boolean> _function = (cpm.Activity a) -> {
+      boolean _contains = a.getName().contains("->");
+      return Boolean.valueOf((!_contains));
+    };
+    final Function1<cpm.Activity, Boolean> _function_1 = (cpm.Activity a) -> {
+      Corr _corrModelElem = this.getCorrModelElem(a);
+      return Boolean.valueOf((_corrModelElem == null));
+    };
+    final List<cpm.Activity> unmatched = IteratorExtensions.<cpm.Activity>toList(IteratorExtensions.<cpm.Activity>filter(IteratorExtensions.<cpm.Activity>filter(Iterators.<cpm.Activity>filter(this.targetModel.getAllContents(), cpm.Activity.class), _function), _function_1));
+    final Consumer<Activity> _function_2 = (Activity a) -> {
+      final Corr corr = this.getOrCreateCorrModelElement(a, this.ruleID);
+      EObject _targetElement = corr.getTargetElement();
+      cpm.Activity target = ((cpm.Activity) _targetElement);
+      if ((target != null)) {
+        unmatched.remove(target);
+        String _get = Elem2Elem.corrToName.get(corr);
+        String _name = a.getName();
+        boolean _notEquals = (!Objects.equals(_get, _name));
+        if (_notEquals) {
+          target.setName(a.getName());
+        } else {
+          a.setName(target.getName());
+        }
+        final Integer lastDuration = Elem2Elem.corrToDuration.get(corr);
+        final boolean sourceChanged = ((lastDuration == null) || ((lastDuration).intValue() != a.getDuration()));
+        final boolean targetChanged = ((lastDuration == null) || ((lastDuration).intValue() != target.getDuration()));
+        if (sourceChanged) {
+          target.setDuration(a.getDuration());
+        } else {
+          if (targetChanged) {
+            a.setDuration(target.getDuration());
+          }
+        }
+      } else {
+        final Function1<cpm.Activity, Boolean> _function_3 = (cpm.Activity t) -> {
+          String _name_1 = t.getName();
+          String _name_2 = a.getName();
+          return Boolean.valueOf(Objects.equals(_name_1, _name_2));
+        };
+        target = IterableExtensions.<cpm.Activity>findFirst(unmatched, _function_3);
+        if ((target != null)) {
+          corr.setTargetElement(target);
+          Elem2Elem.elementsToCorr.put(target, corr);
+          unmatched.remove(target);
+          target.setDuration(a.getDuration());
+        } else {
+          EObject _orCreateTargetElem = this.getOrCreateTargetElem(corr, this.targetPackage.getActivity());
+          target = ((cpm.Activity) _orCreateTargetElem);
+          target.setName(a.getName());
+          target.setDuration(a.getDuration());
+          EObject _targetElement_1 = this.getCorrModelElem(a.getDiagram()).getTargetElement();
+          final CPMNetwork net = ((CPMNetwork) _targetElement_1);
+          boolean _contains = net.getElements().contains(target);
+          boolean _not = (!_contains);
+          if (_not) {
+            EList<Element> _elements = net.getElements();
+            _elements.add(target);
+            EList<Element> _elements_1 = net.getElements();
+            Event _sourceEvent = target.getSourceEvent();
+            _elements_1.add(_sourceEvent);
+            EList<Element> _elements_2 = net.getElements();
+            Event _targetEvent = target.getTargetEvent();
+            _elements_2.add(_targetEvent);
+          }
+        }
+      }
+      Elem2Elem.corrToName.put(corr, a.getName());
+      Elem2Elem.corrToDuration.put(corr, Integer.valueOf(target.getDuration()));
+    };
+    actList.forEach(_function_2);
+    final Consumer<cpm.Activity> _function_3 = (cpm.Activity act) -> {
+      final Corr corr = this.getOrCreateCorrModelElement(act, this.ruleID);
+      EObject _orCreateSourceElem = this.getOrCreateSourceElem(corr, this.sourcePackage.getActivity());
+      final Procedure1<Activity> _function_4 = (Activity it) -> {
+        it.setName(act.getName());
+        it.setDuration(act.getDuration());
+      };
+      final Activity source = ObjectExtensions.<Activity>operator_doubleArrow(((Activity) _orCreateSourceElem), _function_4);
+      EObject _sourceElement = this.getCorrModelElem(act.getNetwork()).getSourceElement();
+      final GanttDiagram diag = ((GanttDiagram) _sourceElement);
+      boolean _contains = diag.getElements().contains(source);
+      boolean _not = (!_contains);
+      if (_not) {
+        EList<gantt.Element> _elements = diag.getElements();
+        _elements.add(source);
+      }
+      Elem2Elem.corrToName.put(corr, source.getName());
+      Elem2Elem.corrToDuration.put(corr, Integer.valueOf(source.getDuration()));
+    };
+    unmatched.forEach(_function_3);
   }
 
   /**
@@ -168,6 +291,7 @@ public class Activity2Activity extends Elem2Elem {
       EObject _createTargetElement = this.createTargetElement(clazz);
       target = ((cpm.Activity) _createTargetElement);
       corr.setTargetElement(target);
+      Elem2Elem.elementsToCorr.put(target, corr);
       target.setSourceEvent(this.createEvent());
       target.setTargetEvent(this.createEvent());
     }

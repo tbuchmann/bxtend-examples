@@ -55,6 +55,7 @@ class Database2Database extends Elem2Elem {
 			target.setName(source.getName());
 			// Ensure the target Database is part of the target model's root content.
 			targetModel.contents += target
+			corrToName.put(corr, source.name)
 		]
 	}
 
@@ -73,6 +74,54 @@ class Database2Database extends Elem2Elem {
 			source.setName(target.getName());
 			// Ensure the source Database is part of the source model's root content.
 			sourceModel.contents += source
+			corrToName.put(corr, source.name)
+		]
+	}
+
+	/**
+	 * Reconciles the root {@code Database} pair. Both models are single-root, so there is
+	 * normally at most one unmatched element per side.
+	 *
+	 * <ol>
+	 *   <li>If already linked, push the name forward when it changed on the source since
+	 *       the last synchronisation ({@link #corrToName}), otherwise pull it backward.</li>
+	 *   <li>If unlinked, re-link to an unmatched same-named database, or create a new one.</li>
+	 *   <li>Any database still unmatched afterwards is used to create the missing
+	 *       counterpart (target-side insertion).</li>
+	 * </ol>
+	 */
+	override void synch() {
+		val dbList = sourceModel.allContents.filter(typeof(pdb1.Database)).toList
+		val unmatchedDbs = targetModel.allContents.filter(typeof(pdb2.Database)).filter[d | d.corrModelElem === null].toList
+
+		dbList.forEach [ source |
+			val corr = source.getOrCreateCorrModelElement(ruleID)
+			var target = corr.targetElement as pdb2.Database
+			if (target !== null) {
+				unmatchedDbs.remove(target)
+				if (corrToName.get(corr) != source.name)
+					target.name = source.name
+				else
+					source.name = target.name
+			} else {
+				target = unmatchedDbs.findFirst[t | t.name == source.name]
+				if (target !== null) {
+					corr.targetElement = target
+					elementsToCorr.put(target, corr)
+					unmatchedDbs.remove(target)
+				} else {
+					target = corr.getOrCreateTargetElem(targetPackage.database) as pdb2.Database => [name = source.name]
+					targetModel.contents += target
+				}
+			}
+			corrToName.put(corr, source.name)
+		]
+
+		unmatchedDbs.forEach [ target |
+			val corr = target.getOrCreateCorrModelElement(ruleID)
+			val source = corr.getOrCreateSourceElem(sourcePackage.database) as pdb1.Database => [name = target.name]
+			sourceModel.contents += source
+			corrToName.put(corr, source.name)
 		]
 	}
 }

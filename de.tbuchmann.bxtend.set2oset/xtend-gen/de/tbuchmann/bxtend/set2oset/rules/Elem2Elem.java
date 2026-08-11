@@ -114,6 +114,16 @@ public abstract class Elem2Elem {
   protected static Map<EObject, Corr> elementsToCorr = CollectionLiterals.<EObject, Corr>newHashMap();
 
   /**
+   * Shared, static map from a {@link Corr} to the identity key (the {@code name} of a
+   * {@code MySet}/{@code MyOrderedSet}, or the {@code value} of a {@code sets.Element}/
+   * {@code osets.Element}) of its source element, as observed at the end of the last
+   * direction call. Used by {@link #synch()} implementations to detect whether the
+   * source-side identity changed since the last synchronisation (push forward) or not
+   * (pull backward).
+   */
+  protected static Map<Corr, String> corrToName = CollectionLiterals.<Corr, String>newHashMap();
+
+  /**
    * Constructs an {@code Elem2Elem} rule, wiring it to the three EMF resources that form the
    * synchronisation state.
    * 
@@ -154,6 +164,14 @@ public abstract class Elem2Elem {
    * The default implementation is a no-op; subclasses must override it.
    */
   public void targetToSource() {
+  }
+
+  /**
+   * Reconciles concurrent edits made to both the source and target models since the last
+   * synchronisation point. Concrete subclasses override this; the default implementation is
+   * a no-op.
+   */
+  public void synch() {
   }
 
   /**

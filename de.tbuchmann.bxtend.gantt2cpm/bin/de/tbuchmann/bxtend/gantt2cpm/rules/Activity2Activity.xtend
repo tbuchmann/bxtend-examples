@@ -90,6 +90,8 @@ class Activity2Activity extends Elem2Elem {
 				net.elements += target
 				net.elements += target.sourceEvent
 				net.elements += target.targetEvent
+				corrToName.put(corr, a.name)
+				corrToDuration.put(corr, target.duration)
 			]
 		//super.sourceToTarget()
 	}
@@ -122,10 +124,91 @@ class Activity2Activity extends Elem2Elem {
 				// Resolve the Gantt container: traverse corr model from CPM network to Gantt diagram
 				val diag = a.network.corrModelElem.sourceElement as GanttDiagram
 				diag.elements += source
+				corrToName.put(corr, source.name)
+				corrToDuration.put(corr, source.duration)
 			]
 		//super.targetToSource()
 	}
 	
+	/**
+	 * Reconciles concurrent edits to plain {@code gantt.Activity} /
+	 * {@code cpm.Activity} pairs (dependency arcs are excluded and handled by
+	 * {@link Dependency2Activity#synch()}).
+	 *
+	 * <p>Algorithm, mirroring {@link Diagram2Network#synch()}:</p>
+	 * <ol>
+	 *   <li>Collect CPM activities without a correspondence yet into
+	 *       {@code unmatched}.</li>
+	 *   <li>For each Gantt activity: if already linked, resolve {@code name} and
+	 *       {@code duration} independently against the last-known snapshot
+	 *       ({@link #corrToName}/{@link #corrToDuration}) — each attribute is
+	 *       pushed forward if it changed on the source, pulled backward if it
+	 *       only changed on the target, and left as-is (source wins) if both
+	 *       changed. Name additionally drives re-linking to a same-named
+	 *       unmatched activity, or creation of a new one, when unlinked.</li>
+	 *   <li>Any CPM activity still unmatched afterwards is treated as a
+	 *       target-side insertion and transformed into a new Gantt activity.</li>
+	 * </ol>
+	 */
+	override void synch() {
+		val actList = sourceModel.allContents.filter(typeof(gantt.Activity)).toList
+		val unmatched = targetModel.allContents.filter(typeof(Activity)).filter[a | !a.name.contains("->")]
+			.filter[a | a.corrModelElem === null].toList
+
+		actList.forEach [ a |
+			val corr = a.getOrCreateCorrModelElement(ruleID)
+			var target = corr.targetElement as Activity
+			if (target !== null) {
+				unmatched.remove(target)
+				if (corrToName.get(corr) != a.name)
+					target.name = a.name
+				else
+					a.name = target.name
+
+				val lastDuration = corrToDuration.get(corr)
+				val sourceChanged = lastDuration === null || lastDuration != a.duration
+				val targetChanged = lastDuration === null || lastDuration != target.duration
+				if (sourceChanged)
+					target.duration = a.duration
+				else if (targetChanged)
+					a.duration = target.duration
+			} else {
+				target = unmatched.findFirst[t | t.name == a.name]
+				if (target !== null) {
+					corr.targetElement = target
+					elementsToCorr.put(target, corr)
+					unmatched.remove(target)
+					target.duration = a.duration
+				} else {
+					target = corr.getOrCreateTargetElem(targetPackage.activity) as Activity
+					target.name = a.name
+					target.duration = a.duration
+					val net = a.diagram.corrModelElem.targetElement as CPMNetwork
+					if (!net.elements.contains(target)) {
+						net.elements += target
+						net.elements += target.sourceEvent
+						net.elements += target.targetEvent
+					}
+				}
+			}
+			corrToName.put(corr, a.name)
+			corrToDuration.put(corr, target.duration)
+		]
+
+		unmatched.forEach [ act |
+			val corr = act.getOrCreateCorrModelElement(ruleID)
+			val source = corr.getOrCreateSourceElem(sourcePackage.activity) as gantt.Activity => [
+				name = act.name
+				duration = act.duration
+			]
+			val diag = act.network.corrModelElem.sourceElement as GanttDiagram
+			if (!diag.elements.contains(source))
+				diag.elements += source
+			corrToName.put(corr, source.name)
+			corrToDuration.put(corr, source.duration)
+		]
+	}
+
 	/**
 	 * Overrides the default target-element creation to implement the
 	 * 1-to-3 mapping: one Gantt {@code Activity} maps to one CPM
@@ -145,6 +228,7 @@ class Activity2Activity extends Elem2Elem {
 		if (target === null) {
 			target = createTargetElement(clazz) as Activity
 			corr.targetElement = target
+			elementsToCorr.put(target, corr)
 			// Each CPM Activity needs exactly one source event and one target event
 			target.sourceEvent = createEvent()
 			target.targetEvent = createEvent()

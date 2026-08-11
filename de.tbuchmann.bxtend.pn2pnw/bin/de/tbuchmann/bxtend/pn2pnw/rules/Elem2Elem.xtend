@@ -71,7 +71,24 @@ abstract class Elem2Elem {
 	 * during source-to-target or target-to-source propagation.</p>
 	 */
 	protected static Map<EObject, Corr> elementsToCorr = newHashMap
-	
+
+	/**
+	 * Shared, static map from a {@link Corr} to the identity key ({@code name}) of its
+	 * source element as observed at the end of the last direction call. Used by
+	 * {@link #synch()} implementations to detect whether the source-side identity changed
+	 * since the last synchronisation (push forward) or not (pull backward).
+	 */
+	protected static Map<Corr, String> corrToName = newHashMap
+
+	/**
+	 * Shared, static map from a {@link Corr} to the last-known value of {@code Place.noOfTokens}
+	 * (source) / {@code pnw.Place.noOfTokens} (target). Unlike {@link #corrToName}, this
+	 * attribute can change independently on either side without affecting the correspondence's
+	 * identity, so {@link Place2Place#synch()} compares both sides against this snapshot to
+	 * decide whether to push, pull, or (if both changed) let the source win.
+	 */
+	protected static Map<Corr, Integer> corrToTokens = newHashMap
+
 	/**
 	 * Constructs the rule, wiring it to the shared model resources and
 	 * pre-loading the {@link #elementsToCorr} map from the persisted
@@ -107,7 +124,15 @@ abstract class Elem2Elem {
 	 */
 	def void targetToSource() {
 	}
-	
+
+	/**
+	 * Reconciles concurrent edits made to both the source and target models since the last
+	 * synchronisation point. Concrete subclasses override this; the default implementation is
+	 * a no-op.
+	 */
+	def void synch() {
+	}
+
 	/**
 	 * Returns the {@link Corr} object associated with {@code obj}, or
 	 * {@code null} if no correspondence has been established yet.

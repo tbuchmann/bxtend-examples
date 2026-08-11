@@ -118,7 +118,27 @@ class Class2Table extends Elem2Elem {
 				ep.EClassifiers += ec
 			]
 	}
-	
+
+	/**
+	 * Reconciles concurrent edits: re-runs {@link #sourceToTarget()} (idempotent, reasserts
+	 * existing class/table correspondences and creates tables for new classes), then absorbs
+	 * any {@code "class"}-annotated {@link Table} that still has no correspondence at all — a
+	 * genuine target-side insertion — using the same logic as {@link #targetToSource()}.
+	 */
+	override void synch() {
+		sourceToTarget()
+		targetModel.allContents.filter(typeof(Table)).filter[t | t.name != "EObject"].filter[ownedAnnotations.exists[annotation == "class"]]
+			.filter[corrModelElem === null]
+			.forEach[tbl |
+				val corr = tbl.getOrCreateCorrModelElement(ruleID)
+				val ec = corr.getOrCreateSourceElem(sourcePackage.EClass) as EClass
+				ec.name = tbl.name
+				ec.abstract = tbl.ownedAnnotations.exists[a | a.annotation == "abstract"]
+				val ep = tbl.owningSchema.corrModelElem.sourceElement as EPackage
+				ep.EClassifiers += ec
+			]
+	}
+
 	/**
 	 * Creates an {@code id INT NOT NULL} {@link sql.Column} and an associated
 	 * {@link sql.PrimaryKey} on the given table, representing the class-level primary key.

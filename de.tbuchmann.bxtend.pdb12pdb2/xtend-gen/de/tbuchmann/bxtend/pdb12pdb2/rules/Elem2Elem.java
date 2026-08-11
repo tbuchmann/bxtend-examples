@@ -109,6 +109,16 @@ public abstract class Elem2Elem {
   protected static Map<EObject, Corr> elementsToCorr = CollectionLiterals.<EObject, Corr>newHashMap();
 
   /**
+   * Shared, static map from a {@link Corr} to the identity key (the PDB1 {@code name} of a
+   * {@code Database}, or the concatenated {@code firstName + " " + lastName} of a
+   * {@code Person} — the same string PDB2 stores as its single {@code name} attribute) as
+   * observed at the end of the last direction call. Used by {@link #synch()}
+   * implementations to detect whether the key changed on the source side (push forward),
+   * the target side (pull backward), or neither, since the last synchronisation.
+   */
+  protected static Map<Corr, String> corrToName = CollectionLiterals.<Corr, String>newHashMap();
+
+  /**
    * Initialises the rule with the three participating EMF resources and pre-populates
    * the {@code elementsToCorr} index from the existing correspondence model contents.
    * 
@@ -154,6 +164,14 @@ public abstract class Elem2Elem {
    * logic for their specific element pair.
    */
   public void targetToSource() {
+  }
+
+  /**
+   * Reconciles concurrent edits made to both the PDB1 source model and the PDB2 target
+   * model since the last synchronisation point. Subclasses override this; the default
+   * implementation is a no-op.
+   */
+  public void synch() {
   }
 
   /**

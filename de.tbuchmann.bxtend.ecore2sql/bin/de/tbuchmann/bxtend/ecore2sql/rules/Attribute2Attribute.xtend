@@ -102,11 +102,12 @@ class Attribute2Attribute extends Class2Table {
 						col = c as Column
 					
 					col.name = att.name
-					col.addColumnType(att)					
-					
+					col.addColumnType(att)
+
 					val parentTable = att.EContainingClass.corrModelElem.targetElement as Table
 					parentTable.ownedColumns += col
-					col.addAnnotations(Arrays.asList("attribute", "single"))										
+					col.addAnnotations(Arrays.asList("attribute", "single"))
+					corrToName.put(corr, col.name)
 				}
 				else { // mehrwertiges Feature
 					val c = corr.getOrCreateTargetElem(targetPackage.table) as NamedElement
@@ -128,8 +129,9 @@ class Attribute2Attribute extends Class2Table {
 						tab.createForeignKeyAttr("id", att.EContainingClass.corrModelElem.targetElement as Table).properties += sql.Property.NOT_NULL
 					tab.createColumn("value", att.columnType)
 					tab.addAnnotations(Arrays.asList("attribute", "multi"))
+					corrToName.put(corr, tab.name)
 				}
-				
+
 			]
 	}
 	
@@ -153,6 +155,7 @@ class Attribute2Attribute extends Class2Table {
 				att.upperBound = 1
 				att.addAttributeType(col)
 				(col.owningTable.corrModelElem.sourceElement as EClass).EStructuralFeatures += att
+				corrToName.put(corr, att.name)
 			]
 		// transform multi-valued attributes (represented by tables containing the respective annotation
 		targetModel.allContents.filter(typeof(Table)).filter[t | t.ownedAnnotations.exists[a | a.annotation == "multi"] && t.ownedAnnotations.exists[annotation == "attribute"]]
@@ -168,9 +171,116 @@ class Attribute2Attribute extends Class2Table {
 				// find parent Class by name
 				val parentEClass = findClassByName(tab.name.split("_").get(0))
 				parentEClass.EStructuralFeatures += attr
+				corrToName.put(corr, attr.name)
 			]
 	}
-	
+
+	/**
+	 * Reconciles concurrent edits to {@code EAttribute} ↔ {@code Column}/{@code Table} pairs.
+	 *
+	 * <p>Unlike most other rules in this project, this one does <em>not</em> simply re-run
+	 * {@link #sourceToTarget()}: {@code EAttribute.name} and {@code Column.name}/{@code Table.name}
+	 * (derived from the attribute name) can each be renamed independently on their own side, so
+	 * blindly pushing the source's name forward would silently discard a target-side rename. For
+	 * every existing correspondence the name is instead resolved against the last-known snapshot
+	 * ({@link #corrToName}): if only the target changed, the target's name wins outright — per
+	 * this benchmark's {@code SyncConflictPolicy.TARGET_WINS} — otherwise the source's (possibly
+	 * changed) name is pushed forward. Multiplicity (single ↔ multi) changes remain purely
+	 * source-driven, matching {@link #sourceToTarget()}'s existing type-swap behaviour. Any
+	 * {@code "attribute"}-annotated {@link Column}/{@link Table} that still has no correspondence
+	 * at all is absorbed as a genuine target-side insertion, mirroring {@link #targetToSource()}.
+	 */
+	override void synch() {
+		sourceModel.allContents.filter(typeof(EAttribute)).forEach[att |
+			val corr = att.getOrCreateCorrModelElement(ruleID)
+			val lastName = corrToName.get(corr)
+
+			if (att.upperBound == 1) {
+				val c = corr.getOrCreateTargetElem(targetPackage.column) as NamedElement
+				var Column col = null
+				if (c instanceof Table) {
+					// multiplicity changed multi → single: no target-side name to preserve
+					EcoreUtil.delete(c, true)
+					col = corr.getOrCreateTargetElem(targetPackage.column) as Column
+					col.name = att.name
+				} else {
+					col = c as Column
+					// lastName === null means this correspondence has never been synced
+					// before (col.name may not even be set yet) - always push in that case,
+					// never treat it as a target-side change to pull.
+					val targetChanged = lastName !== null && lastName != col.name
+					val sourceChanged = lastName === null || lastName != att.name
+					if (targetChanged)
+						att.name = col.name
+					else if (sourceChanged)
+						col.name = att.name
+				}
+				col.addColumnType(att)
+				val parentTable = att.EContainingClass.corrModelElem.targetElement as Table
+				parentTable.ownedColumns += col
+				col.addAnnotations(Arrays.asList("attribute", "single"))
+				corrToName.put(corr, col.name)
+			} else { // mehrwertiges Feature
+				val c = corr.getOrCreateTargetElem(targetPackage.table) as NamedElement
+				var Table tab = null
+				val desiredName = att.EContainingClass.name + "_" + att.name
+				if (c instanceof Column) {
+					// multiplicity changed single → multi: no target-side name to preserve
+					EcoreUtil.delete(c, true)
+					tab = corr.getOrCreateTargetElem(targetPackage.table) as Table
+					tab.name = desiredName
+				} else {
+					tab = c as Table
+					// lastName === null means this correspondence has never been synced
+					// before (tab.name may not even be set yet) - always push in that case,
+					// never treat it as a target-side change to pull.
+					val targetChanged = lastName !== null && lastName != tab.name
+					val sourceChanged = lastName === null || lastName != desiredName
+					if (targetChanged) {
+						// pull: derive the attribute's own name back from the table's current
+						// name, keeping the "<ClassName>_" prefix convention intact
+						val parts = tab.name.split("_", 2)
+						if (parts.length == 2) att.name = parts.get(1)
+					} else if (sourceChanged) {
+						tab.name = desiredName
+					}
+				}
+				// add to schema
+				val schema = att.EContainingClass.EPackage.corrModelElem.targetElement as Schema
+				schema.ownedTables += tab
+				if(!tab.ownedForeignKeys.exists[column.name == "id"])
+					tab.createForeignKeyAttr("id", att.EContainingClass.corrModelElem.targetElement as Table).properties += sql.Property.NOT_NULL
+				tab.createColumn("value", att.columnType)
+				tab.addAnnotations(Arrays.asList("attribute", "multi"))
+				corrToName.put(corr, tab.name)
+			}
+		]
+
+		targetModel.allContents.filter(typeof(Column)).filter[ownedAnnotations.exists[annotation == "attribute"]]
+			.filter[corrModelElem === null]
+			.forEach[col |
+				val corr = col.getOrCreateCorrModelElement(ruleID)
+				val att = corr.getOrCreateSourceElem(sourcePackage.EAttribute) as EAttribute
+				att.name = col.name
+				att.upperBound = 1
+				att.addAttributeType(col)
+				(col.owningTable.corrModelElem.sourceElement as EClass).EStructuralFeatures += att
+				corrToName.put(corr, att.name)
+			]
+		targetModel.allContents.filter(typeof(Table)).filter[t | t.ownedAnnotations.exists[a | a.annotation == "multi"] && t.ownedAnnotations.exists[annotation == "attribute"]]
+			.filter[corrModelElem === null]
+			.forEach[tab |
+				val corr = tab.getOrCreateCorrModelElement(ruleID)
+				val attr = corr.getOrCreateSourceElem(sourcePackage.EAttribute) as EAttribute
+				attr.name = tab.name.split("_").get(1)
+				attr.addAttributeType(tab.ownedColumns.findFirst[c | c.name == "value"])
+				attr.upperBound = -1
+				val parentEClass = findClassByName(tab.name.split("_").get(0))
+				parentEClass.EStructuralFeatures += attr
+				corrToName.put(corr, attr.name)
+			]
+	}
+
 	/**
 	 * Returns the SQL column type string for the given {@link EAttribute}'s primitive type.
 	 *

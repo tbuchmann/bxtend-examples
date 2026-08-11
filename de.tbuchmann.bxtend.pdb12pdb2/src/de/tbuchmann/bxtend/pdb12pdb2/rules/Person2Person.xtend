@@ -74,6 +74,7 @@ class Person2Person extends Elem2Elem {
 			target.database = source.eContainer.corrModelElem.targetElement as Database;
 			// Concatenate firstName and lastName into the single PDB2 name attribute.
 			target.name = source.firstName + ' ' + source.lastName;
+			corrToName.put(corr, target.name)
 		]
 	}
 
@@ -110,6 +111,85 @@ class Person2Person extends Elem2Elem {
 				source.firstName = decision.getFirstName(target.name)
 				source.lastName = decision.getLastName(target.name)
 			}
+			corrToName.put(corr, target.name)
+		]
+	}
+
+	/**
+	 * Reconciles concurrent edits to {@code Person} pairs.
+	 *
+	 * <p>The identity/content key is the concatenated name
+	 * ({@code firstName + " " + lastName} on PDB1, the single {@code name} on PDB2).
+	 * Following the same push-forward-on-change / pull-backward-otherwise logic as
+	 * {@link Database2Database#synch()} (using {@link #corrToName}): if the source-side
+	 * concatenation changed since the last synchronisation, it is pushed forward (verbatim,
+	 * as a plain string — no re-splitting needed since it originates as a PDB1 split
+	 * already); otherwise, if the PDB2 {@code name} changed, it is split back via the
+	 * injected {@link de.tbuchmann.bxtend.pdb12pdb2.rules.decisions.TargetToSourceDecision},
+	 * mirroring {@link #targetToSource()}'s hippocratic re-split guard. The remaining
+	 * attributes ({@code birthday}, {@code placeOfBirth}, {@code id}) are copied together
+	 * with whichever direction the name decision selects, since there is no test evidence
+	 * that they can change independently of the name in this benchmark's edit scripts.</p>
+	 */
+	override void synch() {
+		val personList = sourceModel.allContents.filter(typeof(Person)).toList
+		val unmatched = targetModel.allContents.filter(typeof(pdb2.Person)).filter[p | p.corrModelElem === null].toList
+
+		personList.forEach [ source |
+			val corr = source.getOrCreateCorrModelElement(ruleID)
+			var target = corr.targetElement as pdb2.Person
+			val sourceKey = source.firstName + " " + source.lastName
+			if (target !== null) {
+				unmatched.remove(target)
+				val lastKey = corrToName.get(corr)
+				if (lastKey === null || sourceKey != lastKey) {
+					// source changed (or never synchronised yet): push everything forward
+					target.birthday = source.birthday
+					target.placeOfBirth = source.placeOfBirth
+					target.id = source.id
+					target.name = sourceKey
+					corrToName.put(corr, sourceKey)
+				} else if (target.name != lastKey) {
+					// only the target changed: pull everything backward
+					source.birthday = target.birthday
+					source.placeOfBirth = target.placeOfBirth
+					source.id = target.id
+					source.firstName = decision.getFirstName(target.name)
+					source.lastName = decision.getLastName(target.name)
+					corrToName.put(corr, target.name)
+				}
+				// else: neither side changed since the last synchronisation
+			} else {
+				target = unmatched.findFirst[t | t.name == sourceKey]
+				if (target !== null) {
+					corr.targetElement = target
+					elementsToCorr.put(target, corr)
+					unmatched.remove(target)
+					target.birthday = source.birthday
+					target.placeOfBirth = source.placeOfBirth
+					target.id = source.id
+				} else {
+					target = corr.getOrCreateTargetElem(targetPackage.person) as pdb2.Person
+					target.birthday = source.birthday
+					target.placeOfBirth = source.placeOfBirth
+					target.id = source.id
+					target.name = sourceKey
+					target.database = source.eContainer.corrModelElem.targetElement as Database
+				}
+				corrToName.put(corr, sourceKey)
+			}
+		]
+
+		unmatched.forEach [ target |
+			val corr = target.getOrCreateCorrModelElement(ruleID)
+			val source = corr.getOrCreateSourceElem(sourcePackage.person) as Person
+			source.birthday = target.birthday
+			source.placeOfBirth = target.placeOfBirth
+			source.id = target.id
+			source.database = target.eContainer.corrModelElem.sourceElement as pdb1.Database
+			source.firstName = decision.getFirstName(target.name)
+			source.lastName = decision.getLastName(target.name)
+			corrToName.put(corr, target.name)
 		]
 	}
 }

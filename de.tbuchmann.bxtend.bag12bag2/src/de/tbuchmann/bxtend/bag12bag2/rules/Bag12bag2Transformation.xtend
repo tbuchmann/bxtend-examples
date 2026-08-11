@@ -189,7 +189,24 @@ class Bag12bag2Transformation {
 		// handle deletions
 		deleteUnreferencedSourceElements
 	}
-	
+
+	/**
+	 * Reconciles concurrent edits made to both the Bag1 and Bag2 models since the last
+	 * synchronisation point.
+	 *
+	 * <p>Executes each rule's {@link Elem2Elem#synch()} in the same registration order as
+	 * {@link #sourceToTarget()}/{@link #targetToSource()}, then cleans up dangling
+	 * correspondences on both sides.</p>
+	 */
+	def void synch() {
+		for (Elem2Elem e : rules)
+			e.synch()
+
+		// handle deletions
+		deleteUnreferencedSourceElements
+		deleteUnreferencedTargetElements
+	}
+
 	/**
 	 * Placeholder consistency-check hook.
 	 *
@@ -252,12 +269,16 @@ class Bag12bag2Transformation {
 		detectSourceDeletions().forEach[c |
 			// TODO: add handling of contained and referenced Elements here if appropriate			
 			// end
-			deletionList += c.targetElement
+			// A MultiElem's group can become empty (source-side deletion) while its
+			// targetElement was *also* concurrently deleted directly on the target side
+			// (see Element2Element#synch()); guard against adding that null twice.
+			if (c.targetElement !== null)
+				deletionList += c.targetElement
 			deletionList += c
 		]
 		deletionList.forEach[e | EcoreUtil.delete(e, true)]
 	}
-	
+
 	/**
 	 * Deletes Bag1 source elements (and their correspondences) that have lost their
 	 * Bag2 target counterpart.

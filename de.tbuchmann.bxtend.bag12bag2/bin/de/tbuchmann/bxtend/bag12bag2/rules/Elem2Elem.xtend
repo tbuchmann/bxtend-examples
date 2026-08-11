@@ -111,6 +111,24 @@ abstract class Elem2Elem {
 	 * instances that participate in the same transformation session.</p>
 	 */
 	protected static Map<EObject, Corr> elementsToCorr = newHashMap
+
+	/**
+	 * Shared, static map from a {@link Corr} to the group's identity/content value (a
+	 * {@code MyBag.name}, or the shared {@code value} of a {@link MultiElem} element group)
+	 * as observed at the end of the last direction call. Used by {@link #synch()}
+	 * implementations to detect whether the value changed on the source side (push forward)
+	 * or the target side (pull backward) since the last synchronisation.
+	 */
+	protected static Map<Corr, String> corrToName = newHashMap
+
+	/**
+	 * Shared, static map from a {@link Corr} to the last-known size of a {@link MultiElem}
+	 * group ({@code sourceElements.size} / {@code targetElement.multiplicity}). Unlike
+	 * {@link #corrToName}, this can change independently of the group's value, so
+	 * {@link Element2Element#synch()} compares both sides against this snapshot to decide
+	 * whether to push, pull, or (if both changed) let the source win.
+	 */
+	protected static Map<Corr, Integer> corrToMultiplicity = newHashMap
 	
 	/**
 	 * Constructs the rule, wires the three model resources, seeds {@link #ruleID}
@@ -146,7 +164,15 @@ abstract class Elem2Elem {
 	 */
 	def void targetToSource() {
 	}
-	
+
+	/**
+	 * Reconciles concurrent edits made to both the Bag1 source model and the Bag2 target
+	 * model since the last synchronisation point. Concrete subclasses override this; the
+	 * default implementation is a no-op.
+	 */
+	def void synch() {
+	}
+
 	/**
 	 * Looks up the {@link Corr} entry for the given model object in the in-memory cache.
 	 *

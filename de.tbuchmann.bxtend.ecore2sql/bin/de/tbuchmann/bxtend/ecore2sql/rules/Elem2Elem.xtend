@@ -77,7 +77,17 @@ abstract class Elem2Elem {
 	
 	/** Legacy map kept for potential future optimisation (currently unused at runtime). */
 	protected static Map<EObject, Corr> elementsToCorr = newHashMap
-	
+
+	/**
+	 * Shared, static map from a {@link Corr} to the identity/name attribute of its element
+	 * pair (e.g. an {@code EAttribute}'s {@code name} / the corresponding {@code Column}'s
+	 * {@code name}) as observed at the end of the last direction call. Used by rules whose
+	 * {@code synch()} needs to distinguish a source-side rename from a target-side rename —
+	 * see {@link Attribute2Attribute#synch()} — to decide whether to push, pull, or (per this
+	 * tool's target-wins conflict policy) let the target win when both changed.
+	 */
+	protected static Map<Corr, String> corrToName = newHashMap
+
 	/**
 	 * Constructs an Elem2Elem rule wired to the three model resources.
 	 *
@@ -105,7 +115,33 @@ abstract class Elem2Elem {
 	 */
 	def void targetToSource() {
 	}
-	
+
+	/**
+	 * Synchronisation: reconciles concurrent edits made to both the Ecore source model and the
+	 * SQL target model since the last synchronisation point. Subclasses override this; the
+	 * default implementation is a no-op.
+	 *
+	 * <p>The baseline pattern (see e.g. {@link Package2Schema#synch()}, {@link Class2Table#synch()})
+	 * is <em>source-led</em>: re-run this rule's own {@link #sourceToTarget()} (already idempotent
+	 * get-or-create logic, so it safely reasserts existing correspondences and creates new ones for
+	 * source-side insertions), then absorb any SQL-side elements that still have no correspondence
+	 * at all — genuine target-side insertions — using the same per-element logic as
+	 * {@link #targetToSource()}, filtered to only the unmatched ones so already-processed
+	 * correspondences are not revisited.</p>
+	 *
+	 * <p><b>Exception — rename conflicts:</b> for a rule whose element pair has an independently
+	 * renamable identity attribute on <em>both</em> sides (e.g. {@link Attribute2Attribute}'s
+	 * {@code EAttribute.name} / {@code Column.name}), blindly re-running {@link #sourceToTarget()}
+	 * would silently discard a target-side rename. Those rules instead resolve the name
+	 * independently per element using {@link #corrToName} as a last-synced snapshot, and — per
+	 * this benchmark tool's {@code SyncConflictPolicy.TARGET_WINS} policy (see
+	 * {@code org.benchmarx.examples.ecore2sql.testsuite.concurrent.Conflicts}) — let the target
+	 * win whenever both sides changed since the last synchronisation. See
+	 * {@link Attribute2Attribute#synch()} for the concrete pattern.</p>
+	 */
+	def void synch() {
+	}
+
 	/**
 	 * Looks up the {@link Corr} object whose {@code sourceElement} or {@code targetElement}
 	 * equals {@code obj}.

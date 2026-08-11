@@ -162,7 +162,24 @@ class Pn2pnwTransformation  {
 		// handle deletions
 		deleteUnreferencedSourceElements
 	}
-	
+
+	/**
+	 * Runs the synchronisation pass, reconciling concurrent edits made to both the
+	 * unweighted and weighted Petri net since the last synchronisation point.
+	 *
+	 * <p>Executes each rule's {@link Elem2Elem#synch()} in the same registration order as
+	 * {@link #sourceToTarget()}/{@link #targetToSource()}, then cleans up dangling
+	 * correspondences on both sides.</p>
+	 */
+	def void synch() {
+		for (Elem2Elem e : rules)
+			e.synch()
+
+		// handle deletions
+		deleteUnreferencedSourceElements
+		deleteUnreferencedTargetElements
+	}
+
 	/**
 	 * Placeholder for a post-transformation consistency check.
 	 *

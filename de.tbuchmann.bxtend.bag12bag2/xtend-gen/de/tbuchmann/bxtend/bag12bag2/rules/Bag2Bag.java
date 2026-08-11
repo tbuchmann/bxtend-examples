@@ -111,4 +111,16 @@ public class Bag2Bag extends Elem2Elem {
     };
     IteratorExtensions.<bags2.MyBag>forEach(Iterators.<bags2.MyBag>filter(this.targetModel.getAllContents(), bags2.MyBag.class), _function);
   }
+
+  /**
+   * Reconciles the root {@code MyBag} pair.
+   * 
+   * <p>{@code MyBag} carries no attributes — it is purely a container — so there is
+   * nothing to push or pull beyond re-establishing the correspondence itself, which
+   * {@link #sourceToTarget()} already does idempotently.</p>
+   */
+  @Override
+  public void synch() {
+    this.sourceToTarget();
+  }
 }

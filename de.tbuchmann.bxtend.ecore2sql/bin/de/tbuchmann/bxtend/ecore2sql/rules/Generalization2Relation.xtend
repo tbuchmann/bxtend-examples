@@ -110,5 +110,18 @@ class Generalization2Relation extends Class2Table {
 				}
 			]
 	}
-	
+
+	/**
+	 * Reconciles concurrent edits to the inheritance hierarchy.
+	 *
+	 * <p>Unlike the other rules, this one owns no correspondences of its own — it only
+	 * annotates foreign keys on tables already linked by {@link Class2Table}. Generalisation
+	 * is therefore treated as state fully derived from the source model's current
+	 * {@code ESuperTypes}, so synchronisation simply re-runs the (idempotent) forward direction
+	 * rather than absorbing anything from the target side.</p>
+	 */
+	override void synch() {
+		sourceToTarget()
+	}
+
 }

@@ -82,6 +82,7 @@ public class Person2Person extends Elem2Elem {
       String _lastName = source.getLastName();
       String _plus_1 = (_plus + _lastName);
       target.setName(_plus_1);
+      Elem2Elem.corrToName.put(corr, target.getName());
     };
     IteratorExtensions.<Person>forEach(Iterators.<Person>filter(this.sourceModel.getAllContents(), Person.class), _function);
   }

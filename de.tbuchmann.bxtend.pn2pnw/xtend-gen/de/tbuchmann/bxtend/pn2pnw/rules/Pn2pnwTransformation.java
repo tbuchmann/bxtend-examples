@@ -187,6 +187,22 @@ public class Pn2pnwTransformation {
   }
 
   /**
+   * Runs the synchronisation pass, reconciling concurrent edits made to both the
+   * unweighted and weighted Petri net since the last synchronisation point.
+   * 
+   * <p>Executes each rule's {@link Elem2Elem#synch()} in the same registration order as
+   * {@link #sourceToTarget()}/{@link #targetToSource()}, then cleans up dangling
+   * correspondences on both sides.</p>
+   */
+  public void synch() {
+    for (final Elem2Elem e : this.rules) {
+      e.synch();
+    }
+    this.deleteUnreferencedSourceElements();
+    this.deleteUnreferencedTargetElements();
+  }
+
+  /**
    * Placeholder for a post-transformation consistency check.
    * 
    * @return {@code true} always (not yet implemented)

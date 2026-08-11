@@ -144,6 +144,24 @@ public abstract class Elem2Elem {
   protected static Map<EObject, Corr> elementsToCorr = CollectionLiterals.<EObject, Corr>newHashMap();
 
   /**
+   * Shared, static map from a {@link Corr} to the group's identity/content value (a
+   * {@code MyBag.name}, or the shared {@code value} of a {@link MultiElem} element group)
+   * as observed at the end of the last direction call. Used by {@link #synch()}
+   * implementations to detect whether the value changed on the source side (push forward)
+   * or the target side (pull backward) since the last synchronisation.
+   */
+  protected static Map<Corr, String> corrToName = CollectionLiterals.<Corr, String>newHashMap();
+
+  /**
+   * Shared, static map from a {@link Corr} to the last-known size of a {@link MultiElem}
+   * group ({@code sourceElements.size} / {@code targetElement.multiplicity}). Unlike
+   * {@link #corrToName}, this can change independently of the group's value, so
+   * {@link Element2Element#synch()} compares both sides against this snapshot to decide
+   * whether to push, pull, or (if both changed) let the source win.
+   */
+  protected static Map<Corr, Integer> corrToMultiplicity = CollectionLiterals.<Corr, Integer>newHashMap();
+
+  /**
    * Constructs the rule, wires the three model resources, seeds {@link #ruleID}
    * with the sentinel value {@code "base"}, and populates the {@link #elementsToCorr}
    * cache from the already-persisted correspondences.
@@ -176,6 +194,14 @@ public abstract class Elem2Elem {
    * Concrete subclasses override this method with their specific rule logic.
    */
   public void targetToSource() {
+  }
+
+  /**
+   * Reconciles concurrent edits made to both the Bag1 source model and the Bag2 target
+   * model since the last synchronisation point. Concrete subclasses override this; the
+   * default implementation is a no-op.
+   */
+  public void synch() {
   }
 
   /**

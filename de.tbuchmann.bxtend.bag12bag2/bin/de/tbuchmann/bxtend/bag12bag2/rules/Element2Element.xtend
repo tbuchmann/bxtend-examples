@@ -105,7 +105,10 @@ class Element2Element extends Elem2Elem {
 		// number of Bag1 Elements that are grouped under its MultiElem correspondence.
 		corrModel.allContents.filter[it instanceof MultiElem && (it as MultiElem).desc == ruleID].forEach[
 			val c = it as MultiElem
-			(c.targetElement as bags2.Element).multiplicity = c.sourceElements.size
+			val t = c.targetElement as bags2.Element
+			t.multiplicity = c.sourceElements.size
+			corrToName.put(c, t.value)
+			corrToMultiplicity.put(c, t.multiplicity)
 		]
 	}
 	
@@ -129,21 +132,126 @@ class Element2Element extends Elem2Elem {
 		targetModel.allContents.filter(typeof(bags2.Element)).forEach[ e |
 			val corr = e.getOrCreateCorrModelElement(ruleID) as MultiElem
 			while(corr.sourceElements.size < e.multiplicity) {
-				corr.sourceElements += createSourceElement(Bags1Package.eINSTANCE.element)
+				val newEl = createSourceElement(Bags1Package.eINSTANCE.element)
+				corr.sourceElements += newEl
+				elementsToCorr.put(newEl, corr)
 			}
 			while(corr.sourceElements.size > e.multiplicity) {
 				EcoreUtil.delete(corr.sourceElements.get(0), true)
 			}
-			corr.sourceElements.forEach[ 
+			corr.sourceElements.forEach[
 				val el = it as Element
 				el.value = e.value
 				el.bag = e.bag.getCorrModelElem.sourceElement as bags1.MyBag
 			]
-			
+			corrToName.put(corr, e.value)
+			corrToMultiplicity.put(corr, e.multiplicity)
 		]
 	}
-	
-	
+
+	/**
+	 * Reconciles concurrent edits to Bag1 {@code Element} groups and their Bag2
+	 * counterparts. Three passes:
+	 *
+	 * <ol>
+	 *   <li><b>Regroup:</b> every Bag1 element without a correspondence yet, or whose
+	 *       value has drifted from the last-known group value ({@link #corrToName}), is
+	 *       (re-)grouped via {@link #addToTargetElem} — the same mechanism
+	 *       {@link #sourceToTarget()} already uses for regrouping. An element whose
+	 *       correspondence's target group was concurrently deleted is deliberately left
+	 *       attached to that now-dead correspondence rather than resurrected: the target's
+	 *       deletion wins, and the orchestrator's {@code deleteUnreferencedSourceElements()}
+	 *       sweeps up the orphaned element(s) afterwards. A concurrent source-side
+	 *       <em>addition</em> to that same (just-deleted) group is unaffected by this — it
+	 *       has no correspondence of its own yet, so {@link #addToTargetElem} regroups it
+	 *       independently via {@link #findTargetElem}, which (since the old target is gone)
+	 *       creates a fresh target/correspondence rather than reusing the dead one. The net
+	 *       effect is that the pre-existing element(s) are deleted while the new addition
+	 *       survives as its own single-element group, not merged with the deleted one.</li>
+	 *   <li><b>Reconcile surviving groups:</b> for every {@link MultiElem} correspondence
+	 *       that still has both a target element and source elements, the group's
+	 *       {@code value} and multiplicity are
+	 *       resolved independently against last-known snapshots ({@link #corrToName} /
+	 *       {@link #corrToMultiplicity}): each is pushed forward if it changed on the
+	 *       source, pulled backward if it only changed on the target, and left as-is
+	 *       (source wins) if both changed since the last synchronisation.</li>
+	 *   <li><b>Absorb target-only insertions:</b> any Bag2 {@code Element} that still has
+	 *       no correspondence at all is pulled backward into a freshly created Bag1 group,
+	 *       mirroring {@link #targetToSource()}.</li>
+	 * </ol>
+	 */
+	override void synch() {
+		sourceModel.allContents.filter(typeof(Element)).toList.forEach[ e |
+			val corr = e.getCorrModelElem as MultiElem
+			if (corr === null) {
+				e.addToTargetElem
+			} else if (corr.targetElement !== null) {
+				val lastValue = corrToName.get(corr)
+				if (lastValue !== null && e.value != lastValue) {
+					// this element's value changed since the last synchronisation; it no
+					// longer belongs to its current group. The group's value itself (as
+					// opposed to this one element) is resolved in the pass below.
+					corr.sourceElements -= e
+					e.addToTargetElem
+				}
+			}
+			// else: corr.targetElement === null - this element's group was concurrently
+			// deleted on the target side. Deliberately do NOT resurrect it here (that would
+			// let a concurrent source-side addition to the same group revive a group the
+			// target explicitly deleted, accumulating stale and new elements together).
+			// Leave it attached to the now-dead corr so the orchestrator's
+			// deleteUnreferencedSourceElements() sweeps it up afterwards, same as it would
+			// for a plain (non-concurrent) target-side deletion.
+		]
+
+		corrModel.allContents.filter(typeof(MultiElem)).filter[desc == ruleID].filter[targetElement !== null].filter[!sourceElements.empty].toList.forEach[ corr |
+			val t = corr.targetElement as bags2.Element
+			val groupValue = (corr.sourceElements.head as Element).value
+			val lastValue = corrToName.get(corr)
+			if (lastValue === null || groupValue != lastValue)
+				t.value = groupValue
+			else if (t.value != lastValue)
+				corr.sourceElements.forEach[(it as Element).value = t.value]
+			corrToName.put(corr, t.value)
+
+			val lastMultiplicity = corrToMultiplicity.get(corr)
+			val sourceChanged = lastMultiplicity === null || lastMultiplicity != corr.sourceElements.size
+			val targetChanged = lastMultiplicity === null || lastMultiplicity != t.multiplicity
+			if (sourceChanged) {
+				t.multiplicity = corr.sourceElements.size
+			} else if (targetChanged) {
+				while (corr.sourceElements.size < t.multiplicity) {
+					val newEl = createSourceElement(Bags1Package.eINSTANCE.element) as Element => [
+						value = t.value
+						bag = t.bag.getCorrModelElem.sourceElement as bags1.MyBag
+					]
+					corr.sourceElements += newEl
+					elementsToCorr.put(newEl, corr)
+				}
+				while (corr.sourceElements.size > t.multiplicity) {
+					EcoreUtil.delete(corr.sourceElements.get(0), true)
+				}
+			}
+			corrToMultiplicity.put(corr, t.multiplicity)
+		]
+
+		targetModel.allContents.filter(typeof(bags2.Element)).filter[e | e.corrModelElem === null].toList.forEach[ e |
+			val corr = e.getOrCreateCorrModelElement(ruleID) as MultiElem
+			while (corr.sourceElements.size < e.multiplicity) {
+				val newEl = createSourceElement(Bags1Package.eINSTANCE.element)
+				corr.sourceElements += newEl
+				elementsToCorr.put(newEl, corr)
+			}
+			corr.sourceElements.forEach[
+				val el = it as Element
+				el.value = e.value
+				el.bag = e.bag.getCorrModelElem.sourceElement as bags1.MyBag
+			]
+			corrToName.put(corr, e.value)
+			corrToMultiplicity.put(corr, e.multiplicity)
+		]
+	}
+
 	/**
 	 * Groups the given Bag1 {@code Element} into the appropriate Bag2 {@code Element}.
 	 *

@@ -93,4 +93,15 @@ class Bag2Bag extends Elem2Elem {
 					sourceModel.contents.add(targetElement)
 		]
 	}
+
+	/**
+	 * Reconciles the root {@code MyBag} pair.
+	 *
+	 * <p>{@code MyBag} carries no attributes — it is purely a container — so there is
+	 * nothing to push or pull beyond re-establishing the correspondence itself, which
+	 * {@link #sourceToTarget()} already does idempotently.</p>
+	 */
+	override void synch() {
+		sourceToTarget()
+	}
 }

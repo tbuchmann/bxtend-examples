@@ -83,49 +83,67 @@ class Transition2Transition extends Elem2Elem {
 	 */
 	override sourceToTarget() {
 		sourceModel.allContents.filter(typeof(Transition))
-			.forEach[t | 
-				val pnSourcePlaces = t.srcP2T				
-				val pnTargetPlaces = t.trgT2P
+			.forEach[t |
 				var corr = t.getOrCreateCorrModelElement(ruleID)
 				val targetTransition = corr.getOrCreateTargetElem(targetPackage.transition) as pnw.Transition
 				targetTransition.name = t.name
 				val targetNet = t.net.corrModelElem.targetElement as Net
 				targetNet.elements += targetTransition
-				val unreferencedEdgeCandidates = new ArrayList<Edge>
-				unreferencedEdgeCandidates += targetTransition.inPTEdges
-				unreferencedEdgeCandidates += targetTransition.outTPEdges
-				for (pnSP : pnSourcePlaces) {
-					// check, if there is a connection from pnwSourcePlace to targetTransition
-					val pnwSP = pnSP.corrModelElem.targetElement as Place
-					if (pnwSP.outPTEdges.findFirst[ptEdge | ptEdge.toTransition == targetTransition] === null) {
-						var ptEdge = targetFactory.createPTEdge
-						pnwSP.outPTEdges += ptEdge
-						ptEdge.toTransition = targetTransition
-						ptEdge.weight = 1
-						targetNet.elements += ptEdge
-					}
-					unreferencedEdgeCandidates -= pnwSP.outPTEdges.findFirst[ptEdge |
-						ptEdge.toTransition == targetTransition
-					]
-				}
-				for (pnTP : pnTargetPlaces) {
-					// check, if there is a connection from targetTransition to pnwTargetPlace
-					val pnwTP = pnTP.corrModelElem.targetElement as Place
-					if (pnwTP.inTPEdges.findFirst[tpEdge | tpEdge.fromTransition == targetTransition] === null) {
-						var tpEdge = targetFactory.createTPEdge
-						pnwTP.inTPEdges += tpEdge
-						tpEdge.fromTransition = targetTransition
-						tpEdge.weight = 1
-						targetNet.elements += tpEdge
-					}
-					unreferencedEdgeCandidates -= pnwTP.inTPEdges.findFirst[tpEdge |
-						tpEdge.fromTransition == targetTransition
-					]
-				}
-				for (unreferencedEdge : unreferencedEdgeCandidates) {
-					EcoreUtil.delete(unreferencedEdge);
-				}
+				reconcileEdges(t, targetTransition, targetNet)
 			]
+	}
+
+	/**
+	 * Reconciles {@code targetTransition}'s incoming ({@link pnw.PTEdge}) and outgoing
+	 * ({@link pnw.TPEdge}) weighted arcs against {@code t}'s current {@code srcP2T}/{@code trgT2P}
+	 * cross-references: creates any missing edge (with {@code weight = 1}), and removes any
+	 * edge that no longer has a backing source-side reference.
+	 *
+	 * <p>Existing edges are otherwise left untouched — in particular {@code weight} is never
+	 * reassigned once an edge exists, since it has no source-side equivalent to synchronise
+	 * against. Shared by {@link #sourceToTarget()} and {@link #synch()}.</p>
+	 *
+	 * @param t                the source transition providing the current cross-references
+	 * @param targetTransition the corresponding target transition whose edges are updated
+	 * @param targetNet        the target net that should own any newly created edge
+	 */
+	private def void reconcileEdges(Transition t, pnw.Transition targetTransition, Net targetNet) {
+		val pnSourcePlaces = t.srcP2T
+		val pnTargetPlaces = t.trgT2P
+		val unreferencedEdgeCandidates = new ArrayList<Edge>
+		unreferencedEdgeCandidates += targetTransition.inPTEdges
+		unreferencedEdgeCandidates += targetTransition.outTPEdges
+		for (pnSP : pnSourcePlaces) {
+			// check, if there is a connection from pnwSourcePlace to targetTransition
+			val pnwSP = pnSP.corrModelElem.targetElement as Place
+			if (pnwSP.outPTEdges.findFirst[ptEdge | ptEdge.toTransition == targetTransition] === null) {
+				var ptEdge = targetFactory.createPTEdge
+				pnwSP.outPTEdges += ptEdge
+				ptEdge.toTransition = targetTransition
+				ptEdge.weight = 1
+				targetNet.elements += ptEdge
+			}
+			unreferencedEdgeCandidates -= pnwSP.outPTEdges.findFirst[ptEdge |
+				ptEdge.toTransition == targetTransition
+			]
+		}
+		for (pnTP : pnTargetPlaces) {
+			// check, if there is a connection from targetTransition to pnwTargetPlace
+			val pnwTP = pnTP.corrModelElem.targetElement as Place
+			if (pnwTP.inTPEdges.findFirst[tpEdge | tpEdge.fromTransition == targetTransition] === null) {
+				var tpEdge = targetFactory.createTPEdge
+				pnwTP.inTPEdges += tpEdge
+				tpEdge.fromTransition = targetTransition
+				tpEdge.weight = 1
+				targetNet.elements += tpEdge
+			}
+			unreferencedEdgeCandidates -= pnwTP.inTPEdges.findFirst[tpEdge |
+				tpEdge.fromTransition == targetTransition
+			]
+		}
+		for (unreferencedEdge : unreferencedEdgeCandidates) {
+			EcoreUtil.delete(unreferencedEdge);
+		}
 	}
 	
 	/**
@@ -171,5 +189,64 @@ class Transition2Transition extends Elem2Elem {
 					}
 				}
 			]
+	}
+
+	/**
+	 * Reconciles concurrent edits to {@code Transition} pairs and their arcs.
+	 *
+	 * <p>{@code name} follows the same push/pull logic as {@link Net2Net#synch()}/
+	 * {@link Place2Place#synch()}. Arc existence is source-led: {@link #reconcileEdges}
+	 * (the same logic {@link #sourceToTarget()} already uses) creates any {@code pnw} edge
+	 * backed by a current {@code srcP2T}/{@code trgT2P} reference and removes any edge that
+	 * no longer has one — this is safe for concurrent target-only <em>attribute</em> edits
+	 * because {@code weight} is never touched on an edge that already exists (it has no
+	 * source-side equivalent to reconcile against). A brand-new target-only transition
+	 * (no correspondence yet) is instead pulled backward: its existing edges are used to
+	 * recreate the missing {@code srcP2T}/{@code trgT2P} references, mirroring
+	 * {@link #targetToSource()}.</p>
+	 */
+	override void synch() {
+		val transList = sourceModel.allContents.filter(typeof(Transition)).toList
+		val unmatched = targetModel.allContents.filter(typeof(pnw.Transition)).filter[t | t.corrModelElem === null].toList
+
+		transList.forEach [ t |
+			val corr = t.getOrCreateCorrModelElement(ruleID)
+			var targetTransition = corr.targetElement as pnw.Transition
+			if (targetTransition !== null) {
+				unmatched.remove(targetTransition)
+				if (corrToName.get(corr) != t.name)
+					targetTransition.name = t.name
+				else
+					t.name = targetTransition.name
+			} else {
+				targetTransition = unmatched.findFirst[tt | tt.name == t.name]
+				if (targetTransition !== null) {
+					corr.targetElement = targetTransition
+					elementsToCorr.put(targetTransition, corr)
+					unmatched.remove(targetTransition)
+				} else {
+					targetTransition = corr.getOrCreateTargetElem(targetPackage.transition) as pnw.Transition => [name = t.name]
+					val targetNet = t.net.corrModelElem.targetElement as Net
+					targetNet.elements += targetTransition
+				}
+			}
+			corrToName.put(corr, t.name)
+			reconcileEdges(t, targetTransition, t.net.corrModelElem.targetElement as Net)
+		]
+
+		unmatched.forEach [ tr |
+			val corr = tr.getOrCreateCorrModelElement(ruleID)
+			val sourceTransition = corr.getOrCreateSourceElem(sourcePackage.transition) as Transition => [name = tr.name]
+			val sourceNet = tr.net.corrModelElem.sourceElement as pn.Net
+			sourceNet.elements += sourceTransition
+			corrToName.put(corr, sourceTransition.name)
+			// pull backward: recreate pn cross-references from the target's existing edges
+			tr.inPTEdges.forEach[ptEdge |
+				sourceTransition.srcP2T += ptEdge.fromPlace.corrModelElem.sourceElement as pn.Place
+			]
+			tr.outTPEdges.forEach[tpEdge |
+				sourceTransition.trgT2P += tpEdge.toPlace.corrModelElem.sourceElement as pn.Place
+			]
+		]
 	}
 }

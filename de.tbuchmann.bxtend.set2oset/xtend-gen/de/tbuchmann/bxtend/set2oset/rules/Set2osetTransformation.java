@@ -222,6 +222,23 @@ public class Set2osetTransformation {
   }
 
   /**
+   * Synchronisation entry point: reconciles concurrent edits made to both the source and
+   * target models since the last synchronisation point.
+   * 
+   * <p>Executes each rule's {@link Elem2Elem#synch()} in the same registration order as
+   * {@link #sourceToTarget()}/{@link #targetToSource()}, then cleans up dangling
+   * correspondences on both sides (reusing the same manually-patched deletion helpers that
+   * repair the {@code osets.Element} doubly-linked list).</p>
+   */
+  public void synch() {
+    for (final Elem2Elem e : this.rules) {
+      e.synch();
+    }
+    this.deleteUnreferencedSourceElements();
+    this.deleteUnreferencedTargetElements();
+  }
+
+  /**
    * Checks whether the current source and target models are mutually consistent according
    * to the correspondence model.
    * 

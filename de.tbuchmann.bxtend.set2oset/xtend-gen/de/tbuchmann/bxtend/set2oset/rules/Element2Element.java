@@ -154,4 +154,26 @@ public class Element2Element extends Elem2Elem {
     };
     IteratorExtensions.<Element>forEach(Iterators.<Element>filter(this.targetModel.getAllContents(), Element.class), _function);
   }
+
+  /**
+   * Reconciles concurrent edits to {@code sets.Element} ↔ {@code osets.Element} pairs.
+   * 
+   * <p>{@code value} is both the content and the matching key here (unlike
+   * {@code Place2Place} there is no separate independent attribute), so it follows the same
+   * push-forward-on-change / pull-backward-otherwise logic as
+   * {@link MySet2MyOrderedSet#synch()}, using {@link #corrToName}.</p>
+   * 
+   * <p>List-append semantics are preserved exactly as in {@link #sourceToTarget()}: only a
+   * genuinely new target element (created because neither an existing correspondence nor a
+   * same-valued unmatched target element was found) is appended after the current tail of
+   * the doubly-linked list. Re-linked or already-linked elements keep their existing
+   * position. A brand-new target-only element (no correspondence at all) is pulled backward
+   * without touching the list, exactly as {@link #targetToSource()} does.</p>
+   */
+  @Override
+  public void synch() {
+    throw new Error("Unresolved compilation problems:"
+      + "\nCannot refer to the non-final variable tail inside a lambda expression"
+      + "\nCannot refer to the non-final variable tail inside a lambda expression");
+  }
 }

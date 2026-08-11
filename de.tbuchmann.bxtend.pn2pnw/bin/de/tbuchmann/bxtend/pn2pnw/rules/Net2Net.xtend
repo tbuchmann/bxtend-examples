@@ -73,4 +73,51 @@ class Net2Net extends Elem2Elem {
 				sourceModel.contents += sourceNet
 			]
 	}
+
+	/**
+	 * Reconciles the root {@code Net} pair. Both models are single-root, so there is
+	 * normally at most one unmatched element per side.
+	 *
+	 * <ol>
+	 *   <li>If already linked, push the name forward when it changed on the source since
+	 *       the last synchronisation ({@link #corrToName}), otherwise pull it backward.</li>
+	 *   <li>If unlinked, re-link to an unmatched same-named net, or create a new one.</li>
+	 *   <li>Any net still unmatched afterwards is used to create the missing counterpart
+	 *       (target-side insertion).</li>
+	 * </ol>
+	 */
+	override void synch() {
+		val netList = sourceModel.allContents.filter(typeof(Net)).toList
+		val unmatchedNets = targetModel.allContents.filter(typeof(pnw.Net)).filter[n | n.corrModelElem === null].toList
+
+		netList.forEach [ n |
+			val corr = n.getOrCreateCorrModelElement(ruleID)
+			var target = corr.targetElement as pnw.Net
+			if (target !== null) {
+				unmatchedNets.remove(target)
+				if (corrToName.get(corr) != n.name)
+					target.name = n.name
+				else
+					n.name = target.name
+			} else {
+				target = unmatchedNets.findFirst[t | t.name == n.name]
+				if (target !== null) {
+					corr.targetElement = target
+					elementsToCorr.put(target, corr)
+					unmatchedNets.remove(target)
+				} else {
+					target = corr.getOrCreateTargetElem(targetPackage.net) as pnw.Net => [name = n.name]
+					targetModel.contents += target
+				}
+			}
+			corrToName.put(corr, n.name)
+		]
+
+		unmatchedNets.forEach [ wn |
+			val corr = wn.getOrCreateCorrModelElement(ruleID)
+			val n = corr.getOrCreateSourceElem(sourcePackage.net) as Net => [name = wn.name]
+			sourceModel.contents += n
+			corrToName.put(corr, n.name)
+		]
+	}
 }

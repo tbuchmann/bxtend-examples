@@ -147,33 +147,152 @@ class Ast2dagTransformation {
 	 * that are no longer backed by a source element.
 	 *
 	 * <p>The method is a no-op when the source model is empty (nothing to propagate).
+	 * Purges orphaned correspondence entries first — see
+	 * {@link #purgeOrphanedSourceElements()} — since a source element replaced (rather
+	 * than deleted) by a prior edit, e.g. a test script re-invoking a "create" helper on a
+	 * non-empty model across two separate {@code sourceToTarget()} calls, would otherwise
+	 * leave a dangling correspondence that structural-equality matching could
+	 * misinterpret and that never gets cleaned up.</p>
 	 */
 	def void sourceToTarget() {
+		purgeOrphanedSourceElements()
+		purgeOrphanedTargetElements()
+
 		if (sourceModel.contents.size != 0)
 		for (Elem2Elem e : rulesFwd) {
 			e.sourceToTarget()
 		}
-		
+
 		// Remove DAG elements whose AST counterparts have been deleted.
 		deleteUnreferencedTargetElements
 	}
-	
+
 	/**
 	 * Runs all backward rules (DAG → AST) in order and then removes any source elements
 	 * that are no longer backed by a target element.
 	 *
 	 * <p>The method is a no-op when the target model is empty (nothing to propagate).
+	 * Purges orphaned correspondence entries first, for the same reason as
+	 * {@link #sourceToTarget()} — see {@link #purgeOrphanedSourceElements()}.</p>
 	 */
-	def void targetToSource() {		
+	def void targetToSource() {
+		purgeOrphanedSourceElements()
+		purgeOrphanedTargetElements()
+
 		if (targetModel.contents.size != 0)
 		for (Elem2Elem e: rulesBwd) {
 			e.targetToSource()
 		}
-		
+
 		// Remove AST elements whose DAG counterparts have been deleted.
 		deleteUnreferencedSourceElements
 	}
-	
+
+	/**
+	 * Reconciles concurrent edits made to both the AST source model and the DAG target
+	 * model since the last synchronisation point.
+	 *
+	 * <p>Unlike the other propagation directions, this does <em>not</em> loop over a single
+	 * rule list calling a combined per-rule {@code synch()} — {@link Elem2Elem#synch()}
+	 * explains why that is structurally impossible here (forward and backward propagation
+	 * require opposite rule orderings, because of the leaves-before-operators vs.
+	 * operators-before-leaves dependency between deduplication and tree reconstruction).
+	 * Instead, it runs every rule's {@link Elem2Elem#sourceToTarget()} in {@code rulesFwd}
+	 * order, then every rule's {@link Elem2Elem#targetToSource()} in {@code rulesBwd}
+	 * order. Both directions are already idempotent, self-healing get-or-create
+	 * implementations (see e.g. {@link Number2Number#sourceToTarget()}'s re-linking logic),
+	 * so running the full forward pass followed by the full backward pass correctly
+	 * reconciles concurrent source- and target-side insertions, structural moves, and
+	 * deduplication without discarding either side's changes.</p>
+	 *
+	 * <p>Deletion cleanup happens <em>twice</em>, once between the two passes and once at
+	 * the end — not just once at the end — see {@link #purgeOrphanedSourceElements()} for
+	 * why an orphaned-but-uncleaned element left over from the forward pass must be swept
+	 * away <em>before</em> the backward pass runs, not after.</p>
+	 */
+	def void synch() {
+		// See purgeOrphanedSourceElements()'s Javadoc: elements that AstModelBuilder-style
+		// test helpers detach via a plain containment setter (rather than EcoreUtil.delete)
+		// leave dangling correspondence entries that neither side's dedup/cleanup logic
+		// would otherwise catch.
+		purgeOrphanedSourceElements()
+		purgeOrphanedTargetElements()
+
+		for (Elem2Elem e : rulesFwd)
+			e.sourceToTarget()
+		// Clean up now, before targetToSource() runs: an element left orphaned by the
+		// forward pass must not still look like a legitimate DAG element to the backward
+		// pass (which would otherwise resurrect it as a *new* AST element and — since
+		// Model.expr / Operator.left / Operator.right are all single-valued containment
+		// references — silently overwrite whatever sourceToTarget() just built).
+		deleteUnreferencedTargetElements
+
+		for (Elem2Elem e : rulesBwd)
+			e.targetToSource()
+		deleteUnreferencedSourceElements
+	}
+
+	/**
+	 * Removes source (AST) elements that have become orphaned — detached from the source
+	 * resource without going through {@link EcoreUtil#delete} — from every correspondence.
+	 *
+	 * <p>{@code AstModelBuilder} (the shared Benchmarx test helper) replaces an
+	 * already-occupied containment slot (e.g. {@code Model.expr}, {@code Operator.left}/
+	 * {@code right}) via a plain EMF setter rather than an explicit delete-then-create when
+	 * a test script re-invokes a "create" helper on a non-empty model (e.g.
+	 * {@code createBestDigit()} called a second time inside {@code createMoreBestDigits()}).
+	 * A plain containment setter detaches the old value from the resource — so it silently
+	 * disappears from {@code sourceModel.allContents} — but does <em>not</em> trigger EMF's
+	 * cross-reference cleanup the way {@code EcoreUtil.delete} does, so the correspondence
+	 * model's references to the orphaned subtree are left dangling: {@code sourceElements}
+	 * never becomes empty for it, {@link #detectSourceDeletions()} never flags it, and its
+	 * DAG counterpart is never cleaned up by the normal path.</p>
+	 *
+	 * <p>Left unchecked this causes two symptoms: (a) a structurally-different replacement
+	 * subtree correctly fails to reuse the old DAG node (the structure differs) but the old
+	 * node also never gets deleted, leaving two unreferenced "root" candidates —
+	 * {@link Operator2Operator#targetToSource()} then throws "Dag has multiple root
+	 * elements"; (b) an orphaned leaf (e.g. a stray {@code Number}) still looks like a
+	 * legitimate model-owned DAG element to {@link Number2Number#targetToSource()} /
+	 * {@link Variable2Variable#targetToSource()}, which resurrects it as a <em>new</em> AST
+	 * element and reassigns it to {@code Model.expr} — silently overwriting whatever
+	 * {@link #sourceToTarget()} just correctly built from the live AST.</p>
+	 *
+	 * <p>Purging orphaned entries before each pass means structural-equality matching in
+	 * {@link Operator2Operator} never compares against a dead reference, any correspondence
+	 * left with no elements is correctly detected and cleaned up by
+	 * {@link #deleteUnreferencedTargetElements()}, and any correspondence a live element
+	 * still belongs to is naturally repopulated when {@link #sourceToTarget()} reprocesses
+	 * that live element.</p>
+	 */
+	def private void purgeOrphanedSourceElements() {
+		corrModel.allContents.filter(typeof(Corr)).toList.forEach[ c |
+			if (c instanceof MultiElem) {
+				val m = c as MultiElem
+				val orphaned = m.sourceElements.filter[it.eResource() === null].toList
+				m.sourceElements.removeAll(orphaned)
+			} else if (c instanceof BasicElem) {
+				val b = c as BasicElem
+				if (b.sourceElement !== null && b.sourceElement.eResource() === null)
+					b.sourceElement = null
+			}
+		]
+	}
+
+	/**
+	 * Symmetric counterpart of {@link #purgeOrphanedSourceElements()} for the DAG (target)
+	 * side, in case an equivalent plain-setter replacement pattern ever orphans a target
+	 * element without going through {@link EcoreUtil#delete}. {@code Corr.targetElement} is
+	 * declared on the common base type, so unlike the source side this needs no per-subtype
+	 * handling.
+	 */
+	def private void purgeOrphanedTargetElements() {
+		corrModel.allContents.filter(typeof(Corr)).toList.forEach[ c |
+			if (c.targetElement !== null && c.targetElement.eResource() === null)
+				c.targetElement = null
+		]
+	}
+
 	/**
 	 * Placeholder consistency check.
 	 *

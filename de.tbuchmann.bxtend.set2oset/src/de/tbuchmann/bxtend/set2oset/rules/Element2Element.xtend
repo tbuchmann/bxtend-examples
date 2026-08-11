@@ -134,7 +134,61 @@ class Element2Element extends Elem2Elem {
 			val corr = target.getOrCreateCorrModelElement(ruleID);
 			val source = corr.getOrCreateSourceElem(sourcePackage.element) as sets.Element;
 			source.value = target.value;
-			source.set = target.eContainer.corrModelElem.sourceElement as MySet;	
+			source.set = target.eContainer.corrModelElem.sourceElement as MySet;
+		]
+	}
+
+	/**
+	 * Reconciles concurrent edits to {@code sets.Element} ↔ {@code osets.Element} pairs.
+	 *
+	 * <p>{@code value} is both the content and the matching key here (unlike
+	 * {@code Place2Place} there is no separate independent attribute), so it follows the same
+	 * push-forward-on-change / pull-backward-otherwise logic as
+	 * {@link MySet2MyOrderedSet#synch()}, using {@link #corrToName}.</p>
+	 *
+	 * <p>List-append semantics are preserved exactly as in {@link #sourceToTarget()}: only a
+	 * genuinely new target element (created because neither an existing correspondence nor a
+	 * same-valued unmatched target element was found) is appended after the current tail of
+	 * the doubly-linked list. Re-linked or already-linked elements keep their existing
+	 * position. A brand-new target-only element (no correspondence at all) is pulled backward
+	 * without touching the list, exactly as {@link #targetToSource()} does.</p>
+	 */
+	override void synch() {
+		val elemList = sourceModel.allContents.filter(typeof(sets.Element)).toList
+		val unmatched = targetModel.allContents.filter(typeof(Element)).filter[e | e.corrModelElem === null].toList
+		var Element tail = targetModel.allContents.filter(typeof(Element)).findFirst[next === null]
+
+		elemList.forEach [ source |
+			val corr = source.getOrCreateCorrModelElement(ruleID)
+			var target = corr.targetElement as Element
+			if (target !== null) {
+				unmatched.remove(target)
+				if (corrToName.get(corr) != source.value)
+					target.value = source.value
+				else
+					source.value = target.value
+			} else {
+				target = unmatched.findFirst[t | t.value == source.value]
+				if (target !== null) {
+					corr.targetElement = target
+					elementsToCorr.put(target, corr)
+					unmatched.remove(target)
+				} else {
+					target = corr.getOrCreateTargetElem(targetPackage.element) as Element
+					target.previous = tail
+					tail = target
+					target.value = source.value
+				}
+				target.orderedSet = source.eContainer.corrModelElem.targetElement as MyOrderedSet
+			}
+			corrToName.put(corr, source.value)
+		]
+
+		unmatched.forEach [ target |
+			val corr = target.getOrCreateCorrModelElement(ruleID)
+			val source = corr.getOrCreateSourceElem(sourcePackage.element) as sets.Element => [value = target.value]
+			source.set = target.eContainer.corrModelElem.sourceElement as MySet
+			corrToName.put(corr, source.value)
 		]
 	}
 }

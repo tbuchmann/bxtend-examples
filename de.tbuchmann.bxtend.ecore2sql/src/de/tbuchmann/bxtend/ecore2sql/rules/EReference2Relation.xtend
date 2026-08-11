@@ -306,7 +306,88 @@ class EReference2Relation extends Class2Table {
 				}
 			]
 	}
-	
+
+	/**
+	 * Reconciles concurrent edits: re-runs {@link #sourceToTarget()} (idempotent — handles
+	 * updates and reshaping between Column/Table representations for existing references, and
+	 * creates SQL elements for new source references), then absorbs any
+	 * {@code "cross"}/{@code "containment"}-annotated {@link Column}/{@link Table} that still
+	 * has no correspondence at all — a genuine target-side insertion — using the same logic as
+	 * {@link #targetToSource()}.
+	 */
+	override void synch() {
+		sourceToTarget()
+		targetModel.allContents.filter(typeof(Column)).filter[ownedAnnotations.exists[annotation=="cross" || annotation == "containment"]]
+			.filter[corrModelElem === null]
+			.forEach[col |
+				val corr = col.getOrCreateCorrModelElement(ruleID)
+				val ref = corr.getOrCreateSourceElem(sourcePackage.EReference) as EReference
+				val sourceClass = (col.eContainer as Table).corrModelElem.sourceElement as EClass
+				val targetClass = (col.eContainer as Table).ownedForeignKeys.findFirst[column == col].referencedTable.corrModelElem.sourceElement as EClass
+
+				ref.upperBound = if(col.ownedAnnotations.exists[annotation == "single"]) 1 else -1
+				if(col.ownedAnnotations.exists[annotation == "containment"]) {
+					ref.containment = true
+					if(col.ownedAnnotations.exists[annotation == "bidirectional"]) {
+						ref.name = col.name.split("_").get(2)
+						var invRef = sourceClass.EReferences.findFirst[r | r.name == col.name.split("_").get(0)]
+						if(invRef === null) {
+							invRef = createSourceElement(sourcePackage.EReference) as EReference
+						}
+						invRef.name = col.name.split("_").get(0)
+						invRef.EType = targetClass
+						ref.EOpposite = invRef
+						invRef.EOpposite = ref
+						sourceClass.EStructuralFeatures += invRef
+					} else {
+						if(ref.EOpposite !== null) EcoreUtil.delete(ref.EOpposite, true);
+						ref.name = col.name.split("_").get(0)
+					}
+					ref.EType = sourceClass
+					targetClass.EStructuralFeatures += ref
+				} else {
+					ref.name = col.name
+					ref.EType = targetClass
+					sourceClass.EStructuralFeatures += ref
+				}
+			]
+		targetModel.allContents.filter(typeof(Table)).filter[t | t.ownedAnnotations.exists[a | a.annotation == "cross" || a.annotation == "containment"]]
+			.filter[corrModelElem === null]
+			.forEach[tab |
+				val corr = tab.getOrCreateCorrModelElement(ruleID)
+				val ref = corr.getOrCreateSourceElem(sourcePackage.EReference) as EReference
+				ref.upperBound = if(tab.ownedAnnotations.exists[annotation == "forwardSingle"]) 1 else -1
+				if(tab.ownedAnnotations.exists[annotation == "unidirectional"]) {
+					ref.name = tab.name.split("_").get(1)
+					ref.EType = tab.ownedForeignKeys.findFirst[f | f.column.name == "reference"].referencedTable.corrModelElem.sourceElement as EClass
+					val parentEClass = findClassByName(tab.name.split("_").get(0))
+					parentEClass.EStructuralFeatures += ref
+					if(ref.EOpposite !== null) {
+						EcoreUtil.delete(ref.EOpposite, true)
+						ref.EOpposite = null
+					}
+				} else {
+					// bidirectional: reconstruct both ends from the composite table name
+					ref.name = tab.name.split("_").get(1)
+					val sourceEClass = findClassByName(tab.name.split("_").get(0))
+					val targetEClass = findClassByName(tab.name.split("_").get(3))
+					ref.EType = targetEClass
+
+					var invRef = ref.EOpposite
+					if(invRef === null) {
+						invRef = createSourceElement(sourcePackage.EReference) as EReference
+					}
+					invRef.name = tab.name.split("_").get(4);
+					invRef.upperBound = if(tab.ownedAnnotations.exists[annotation == "backwardSingle"]) 1 else -1
+					invRef.EType = sourceEClass
+					invRef.EOpposite = ref
+					ref.EOpposite = invRef
+					sourceEClass.EStructuralFeatures += ref
+					targetEClass.EStructuralFeatures  += invRef
+				}
+			]
+	}
+
 	/**
 	 * Overrides the standard {@link Elem2Elem#getOrCreateTargetElem} to support the dynamic
 	 * choice between a {@link Column} target and a {@link Table} target.

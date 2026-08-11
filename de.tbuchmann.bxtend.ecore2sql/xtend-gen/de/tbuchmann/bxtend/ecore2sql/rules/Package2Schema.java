@@ -141,4 +141,32 @@ public class Package2Schema extends Elem2Elem {
     };
     IteratorExtensions.<Schema>forEach(Iterators.<Schema>filter(this.targetModel.getAllContents(), Schema.class), _function);
   }
+
+  /**
+   * Reconciles concurrent edits: re-runs {@link #sourceToTarget()} (idempotent, reasserts
+   * existing package/schema correspondences and creates schemas for new packages), then
+   * absorbs any {@link Schema} that still has no correspondence at all — a genuine
+   * target-side insertion — using the same logic as {@link #targetToSource()}.
+   */
+  @Override
+  public void synch() {
+    this.sourceToTarget();
+    final Function1<Schema, Boolean> _function = (Schema it) -> {
+      Corr _corrModelElem = this.getCorrModelElem(it);
+      return Boolean.valueOf((_corrModelElem == null));
+    };
+    final Procedure1<Schema> _function_1 = (Schema sc) -> {
+      final Corr corr = this.getOrCreateCorrModelElement(sc, this.ruleID);
+      EObject _orCreateSourceElem = this.getOrCreateSourceElem(corr, this.sourcePackage.getEPackage());
+      final Procedure1<EPackage> _function_2 = (EPackage it) -> {
+        it.setName(sc.getName());
+        it.setNsPrefix(sc.getName());
+        it.setNsURI(sc.getName());
+      };
+      final EPackage ep = ObjectExtensions.<EPackage>operator_doubleArrow(((EPackage) _orCreateSourceElem), _function_2);
+      EList<EObject> _contents = this.sourceModel.getContents();
+      _contents.add(ep);
+    };
+    IteratorExtensions.<Schema>forEach(IteratorExtensions.<Schema>filter(Iterators.<Schema>filter(this.targetModel.getAllContents(), Schema.class), _function), _function_1);
+  }
 }

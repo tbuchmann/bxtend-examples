@@ -214,6 +214,22 @@ public class Bag12bag2Transformation {
   }
 
   /**
+   * Reconciles concurrent edits made to both the Bag1 and Bag2 models since the last
+   * synchronisation point.
+   * 
+   * <p>Executes each rule's {@link Elem2Elem#synch()} in the same registration order as
+   * {@link #sourceToTarget()}/{@link #targetToSource()}, then cleans up dangling
+   * correspondences on both sides.</p>
+   */
+  public void synch() {
+    for (final Elem2Elem e : this.rules) {
+      e.synch();
+    }
+    this.deleteUnreferencedSourceElements();
+    this.deleteUnreferencedTargetElements();
+  }
+
+  /**
    * Placeholder consistency-check hook.
    * 
    * <p>Always returns {@code true} in this implementation. Override or extend
@@ -276,7 +292,11 @@ public class Bag12bag2Transformation {
     final List<EObject> deletionList = CollectionLiterals.<EObject>newArrayList();
     final Procedure1<Corr> _function = (Corr c) -> {
       EObject _targetElement = c.getTargetElement();
-      deletionList.add(_targetElement);
+      boolean _tripleNotEquals = (_targetElement != null);
+      if (_tripleNotEquals) {
+        EObject _targetElement_1 = c.getTargetElement();
+        deletionList.add(_targetElement_1);
+      }
       deletionList.add(c);
     };
     IteratorExtensions.<Corr>forEach(this.detectSourceDeletions(), _function);

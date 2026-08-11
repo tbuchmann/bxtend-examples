@@ -185,6 +185,22 @@ public class Pdb12pdb2Transformation {
   }
 
   /**
+   * Runs all rules' synchronisation direction, reconciling concurrent edits made to both
+   * the PDB1 and PDB2 models since the last synchronisation point.
+   * 
+   * <p>Executes each rule's {@link Elem2Elem#synch()} in the same registration order as
+   * {@link #sourceToTarget()}/{@link #targetToSource()}, then cleans up dangling
+   * correspondences on both sides.</p>
+   */
+  public void synch() {
+    for (final Elem2Elem e : this.rules) {
+      e.synch();
+    }
+    this.deleteUnreferencedSourceElements();
+    this.deleteUnreferencedTargetElements();
+  }
+
+  /**
    * Placeholder for checking that all correspondences are valid (both sides
    * present and consistent). Currently always returns {@code true}.
    * 

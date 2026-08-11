@@ -66,8 +66,64 @@ class Place2Place extends Elem2Elem {
 		targetModel.allContents.filter(typeof(pnw.Place))
 			.forEach[p |
 				val corr = p.getOrCreateCorrModelElement(ruleID)
-				val sourcePlace = corr.getOrCreateSourceElem(sourcePackage.place) as Place => [name = p.name; noOfTokens = p.noOfTokens]				
+				val sourcePlace = corr.getOrCreateSourceElem(sourcePackage.place) as Place => [name = p.name; noOfTokens = p.noOfTokens]
 				(p.net.corrModelElem.sourceElement as pn.Net).elements += sourcePlace
 			]
+	}
+
+	/**
+	 * Reconciles concurrent edits to {@code Place} pairs.
+	 *
+	 * <p>{@code name} (the identity/matching key) and {@code noOfTokens} (independent of the
+	 * key) are resolved separately: {@code name} follows the same push-forward-on-change /
+	 * pull-backward-otherwise logic as {@link Net2Net#synch()} (using {@link #corrToName});
+	 * {@code noOfTokens} is compared on <em>both</em> sides against the last-known snapshot
+	 * ({@link #corrToTokens}) so a source-only or target-only edit is never silently
+	 * discarded, and a genuine conflict (both changed) lets the source win.</p>
+	 */
+	override void synch() {
+		val placeList = sourceModel.allContents.filter(typeof(Place)).toList
+		val unmatched = targetModel.allContents.filter(typeof(pnw.Place)).filter[p | p.corrModelElem === null].toList
+
+		placeList.forEach [ p |
+			val corr = p.getOrCreateCorrModelElement(ruleID)
+			var target = corr.targetElement as pnw.Place
+			if (target !== null) {
+				unmatched.remove(target)
+				if (corrToName.get(corr) != p.name)
+					target.name = p.name
+				else
+					p.name = target.name
+
+				val lastTokens = corrToTokens.get(corr)
+				val sourceChanged = lastTokens === null || lastTokens != p.noOfTokens
+				val targetChanged = lastTokens === null || lastTokens != target.noOfTokens
+				if (sourceChanged)
+					target.noOfTokens = p.noOfTokens
+				else if (targetChanged)
+					p.noOfTokens = target.noOfTokens
+			} else {
+				target = unmatched.findFirst[t | t.name == p.name]
+				if (target !== null) {
+					corr.targetElement = target
+					elementsToCorr.put(target, corr)
+					unmatched.remove(target)
+					target.noOfTokens = p.noOfTokens
+				} else {
+					target = corr.getOrCreateTargetElem(targetPackage.place) as pnw.Place => [name = p.name; noOfTokens = p.noOfTokens]
+					(p.net.corrModelElem.targetElement as Net).elements += target
+				}
+			}
+			corrToName.put(corr, p.name)
+			corrToTokens.put(corr, target.noOfTokens)
+		]
+
+		unmatched.forEach [ wp |
+			val corr = wp.getOrCreateCorrModelElement(ruleID)
+			val sp = corr.getOrCreateSourceElem(sourcePackage.place) as Place => [name = wp.name; noOfTokens = wp.noOfTokens]
+			(wp.net.corrModelElem.sourceElement as pn.Net).elements += sp
+			corrToName.put(corr, sp.name)
+			corrToTokens.put(corr, sp.noOfTokens)
+		]
 	}
 }

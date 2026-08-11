@@ -16,6 +16,7 @@ import org.eclipse.emf.ecore.util.EcoreUtil;
 import org.eclipse.xtext.xbase.lib.Functions.Function1;
 import org.eclipse.xtext.xbase.lib.IterableExtensions;
 import org.eclipse.xtext.xbase.lib.IteratorExtensions;
+import org.eclipse.xtext.xbase.lib.ObjectExtensions;
 import org.eclipse.xtext.xbase.lib.Procedures.Procedure1;
 
 /**
@@ -130,7 +131,10 @@ public class Element2Element extends Elem2Elem {
     final Procedure1<EObject> _function_2 = (EObject it) -> {
       final MultiElem c = ((MultiElem) it);
       EObject _targetElement = c.getTargetElement();
-      ((bags2.Element) _targetElement).setMultiplicity(c.getSourceElements().size());
+      final bags2.Element t = ((bags2.Element) _targetElement);
+      t.setMultiplicity(c.getSourceElements().size());
+      Elem2Elem.corrToName.put(c, t.getValue());
+      Elem2Elem.corrToMultiplicity.put(c, Integer.valueOf(t.getMultiplicity()));
     };
     IteratorExtensions.<EObject>forEach(IteratorExtensions.<EObject>filter(this.corrModel.getAllContents(), _function_1), _function_2);
   }
@@ -157,9 +161,12 @@ public class Element2Element extends Elem2Elem {
       Corr _orCreateCorrModelElement = this.getOrCreateCorrModelElement(e, this.ruleID);
       final MultiElem corr = ((MultiElem) _orCreateCorrModelElement);
       while ((corr.getSourceElements().size() < e.getMultiplicity())) {
-        EList<EObject> _sourceElements = corr.getSourceElements();
-        EObject _createSourceElement = this.createSourceElement(Bags1Package.eINSTANCE.getElement());
-        _sourceElements.add(_createSourceElement);
+        {
+          final EObject newEl = this.createSourceElement(Bags1Package.eINSTANCE.getElement());
+          EList<EObject> _sourceElements = corr.getSourceElements();
+          _sourceElements.add(newEl);
+          Elem2Elem.elementsToCorr.put(newEl, corr);
+        }
       }
       while ((corr.getSourceElements().size() > e.getMultiplicity())) {
         EcoreUtil.delete(corr.getSourceElements().get(0), true);
@@ -171,8 +178,150 @@ public class Element2Element extends Elem2Elem {
         el.setBag(((MyBag) _sourceElement));
       };
       corr.getSourceElements().forEach(_function_1);
+      Elem2Elem.corrToName.put(corr, e.getValue());
+      Elem2Elem.corrToMultiplicity.put(corr, Integer.valueOf(e.getMultiplicity()));
     };
     IteratorExtensions.<bags2.Element>forEach(Iterators.<bags2.Element>filter(this.targetModel.getAllContents(), bags2.Element.class), _function);
+  }
+
+  /**
+   * Reconciles concurrent edits to Bag1 {@code Element} groups and their Bag2
+   * counterparts. Three passes:
+   * 
+   * <ol>
+   *   <li><b>Regroup:</b> every Bag1 element without a correspondence yet, or whose
+   *       value has drifted from the last-known group value ({@link #corrToName}), is
+   *       (re-)grouped via {@link #addToTargetElem} — the same mechanism
+   *       {@link #sourceToTarget()} already uses for regrouping. An element whose
+   *       correspondence's target group was concurrently deleted is deliberately left
+   *       attached to that now-dead correspondence rather than resurrected: the target's
+   *       deletion wins, and the orchestrator's {@code deleteUnreferencedSourceElements()}
+   *       sweeps up the orphaned element(s) afterwards. A concurrent source-side
+   *       <em>addition</em> to that same (just-deleted) group is unaffected by this — it
+   *       has no correspondence of its own yet, so {@link #addToTargetElem} regroups it
+   *       independently via {@link #findTargetElem}, which (since the old target is gone)
+   *       creates a fresh target/correspondence rather than reusing the dead one. The net
+   *       effect is that the pre-existing element(s) are deleted while the new addition
+   *       survives as its own single-element group, not merged with the deleted one.</li>
+   *   <li><b>Reconcile surviving groups:</b> for every {@link MultiElem} correspondence
+   *       that still has both a target element and source elements, the group's
+   *       {@code value} and multiplicity are
+   *       resolved independently against last-known snapshots ({@link #corrToName} /
+   *       {@link #corrToMultiplicity}): each is pushed forward if it changed on the
+   *       source, pulled backward if it only changed on the target, and left as-is
+   *       (source wins) if both changed since the last synchronisation.</li>
+   *   <li><b>Absorb target-only insertions:</b> any Bag2 {@code Element} that still has
+   *       no correspondence at all is pulled backward into a freshly created Bag1 group,
+   *       mirroring {@link #targetToSource()}.</li>
+   * </ol>
+   */
+  @Override
+  public void synch() {
+    final Consumer<Element> _function = (Element e) -> {
+      Corr _corrModelElem = this.getCorrModelElem(e);
+      final MultiElem corr = ((MultiElem) _corrModelElem);
+      if ((corr == null)) {
+        this.addToTargetElem(e);
+      } else {
+        EObject _targetElement = corr.getTargetElement();
+        boolean _tripleNotEquals = (_targetElement != null);
+        if (_tripleNotEquals) {
+          final String lastValue = Elem2Elem.corrToName.get(corr);
+          if (((lastValue != null) && (!Objects.equals(e.getValue(), lastValue)))) {
+            EList<EObject> _sourceElements = corr.getSourceElements();
+            _sourceElements.remove(e);
+            this.addToTargetElem(e);
+          }
+        }
+      }
+    };
+    IteratorExtensions.<Element>toList(Iterators.<Element>filter(this.sourceModel.getAllContents(), Element.class)).forEach(_function);
+    final Function1<MultiElem, Boolean> _function_1 = (MultiElem it) -> {
+      String _desc = it.getDesc();
+      return Boolean.valueOf(Objects.equals(_desc, this.ruleID));
+    };
+    final Function1<MultiElem, Boolean> _function_2 = (MultiElem it) -> {
+      EObject _targetElement = it.getTargetElement();
+      return Boolean.valueOf((_targetElement != null));
+    };
+    final Function1<MultiElem, Boolean> _function_3 = (MultiElem it) -> {
+      boolean _isEmpty = it.getSourceElements().isEmpty();
+      return Boolean.valueOf((!_isEmpty));
+    };
+    final Consumer<MultiElem> _function_4 = (MultiElem corr) -> {
+      EObject _targetElement = corr.getTargetElement();
+      final bags2.Element t = ((bags2.Element) _targetElement);
+      EObject _head = IterableExtensions.<EObject>head(corr.getSourceElements());
+      final String groupValue = ((Element) _head).getValue();
+      final String lastValue = Elem2Elem.corrToName.get(corr);
+      if (((lastValue == null) || (!Objects.equals(groupValue, lastValue)))) {
+        t.setValue(groupValue);
+      } else {
+        String _value = t.getValue();
+        boolean _notEquals = (!Objects.equals(_value, lastValue));
+        if (_notEquals) {
+          final Consumer<EObject> _function_5 = (EObject it) -> {
+            ((Element) it).setValue(t.getValue());
+          };
+          corr.getSourceElements().forEach(_function_5);
+        }
+      }
+      Elem2Elem.corrToName.put(corr, t.getValue());
+      final Integer lastMultiplicity = Elem2Elem.corrToMultiplicity.get(corr);
+      final boolean sourceChanged = ((lastMultiplicity == null) || ((lastMultiplicity).intValue() != corr.getSourceElements().size()));
+      final boolean targetChanged = ((lastMultiplicity == null) || ((lastMultiplicity).intValue() != t.getMultiplicity()));
+      if (sourceChanged) {
+        t.setMultiplicity(corr.getSourceElements().size());
+      } else {
+        if (targetChanged) {
+          while ((corr.getSourceElements().size() < t.getMultiplicity())) {
+            {
+              EObject _createSourceElement = this.createSourceElement(Bags1Package.eINSTANCE.getElement());
+              final Procedure1<Element> _function_6 = (Element it) -> {
+                it.setValue(t.getValue());
+                EObject _sourceElement = this.getCorrModelElem(t.getBag()).getSourceElement();
+                it.setBag(((MyBag) _sourceElement));
+              };
+              final Element newEl = ObjectExtensions.<Element>operator_doubleArrow(((Element) _createSourceElement), _function_6);
+              EList<EObject> _sourceElements = corr.getSourceElements();
+              _sourceElements.add(newEl);
+              Elem2Elem.elementsToCorr.put(newEl, corr);
+            }
+          }
+          while ((corr.getSourceElements().size() > t.getMultiplicity())) {
+            EcoreUtil.delete(corr.getSourceElements().get(0), true);
+          }
+        }
+      }
+      Elem2Elem.corrToMultiplicity.put(corr, Integer.valueOf(t.getMultiplicity()));
+    };
+    IteratorExtensions.<MultiElem>toList(IteratorExtensions.<MultiElem>filter(IteratorExtensions.<MultiElem>filter(IteratorExtensions.<MultiElem>filter(Iterators.<MultiElem>filter(this.corrModel.getAllContents(), MultiElem.class), _function_1), _function_2), _function_3)).forEach(_function_4);
+    final Function1<bags2.Element, Boolean> _function_5 = (bags2.Element e) -> {
+      Corr _corrModelElem = this.getCorrModelElem(e);
+      return Boolean.valueOf((_corrModelElem == null));
+    };
+    final Consumer<bags2.Element> _function_6 = (bags2.Element e) -> {
+      Corr _orCreateCorrModelElement = this.getOrCreateCorrModelElement(e, this.ruleID);
+      final MultiElem corr = ((MultiElem) _orCreateCorrModelElement);
+      while ((corr.getSourceElements().size() < e.getMultiplicity())) {
+        {
+          final EObject newEl = this.createSourceElement(Bags1Package.eINSTANCE.getElement());
+          EList<EObject> _sourceElements = corr.getSourceElements();
+          _sourceElements.add(newEl);
+          Elem2Elem.elementsToCorr.put(newEl, corr);
+        }
+      }
+      final Consumer<EObject> _function_7 = (EObject it) -> {
+        final Element el = ((Element) it);
+        el.setValue(e.getValue());
+        EObject _sourceElement = this.getCorrModelElem(e.getBag()).getSourceElement();
+        el.setBag(((MyBag) _sourceElement));
+      };
+      corr.getSourceElements().forEach(_function_7);
+      Elem2Elem.corrToName.put(corr, e.getValue());
+      Elem2Elem.corrToMultiplicity.put(corr, Integer.valueOf(e.getMultiplicity()));
+    };
+    IteratorExtensions.<bags2.Element>toList(IteratorExtensions.<bags2.Element>filter(Iterators.<bags2.Element>filter(this.targetModel.getAllContents(), bags2.Element.class), _function_5)).forEach(_function_6);
   }
 
   /**

@@ -112,7 +112,24 @@ abstract class Elem2Elem {
 	 */
 	def void targetToSource() {
 	}
-	
+
+	/**
+	 * Reconciliation hook, present for API consistency with the other BXtend examples'
+	 * {@code Elem2Elem} base classes. Not invoked directly by
+	 * {@link Ast2dagTransformation#synch()}: unlike a simple 1:1 domain, a per-rule method
+	 * that runs both {@link #sourceToTarget()} and {@link #targetToSource()} together
+	 * cannot be looped over a single rule list here, because forward propagation requires
+	 * leaves before operators (deduplication) while backward propagation requires
+	 * operators before leaves (tree reconstruction) — the opposite order. See
+	 * {@link Ast2dagTransformation#synch()} for how reconciliation is actually orchestrated
+	 * (all rules' {@link #sourceToTarget()} in {@code rulesFwd} order, then all rules'
+	 * {@link #targetToSource()} in {@code rulesBwd} order), which both existing directions
+	 * already support since they are idempotent, self-healing get-or-create
+	 * implementations. The default implementation here is a no-op.
+	 */
+	def void synch() {
+	}
+
 	/**
 	 * Looks up the correspondence entry for the given model element.
 	 *

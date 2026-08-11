@@ -184,7 +184,24 @@ class Ecore2sqlTransformation {
 		// handle deletions
 		deleteUnreferencedSourceElements
 	}
-	
+
+	/**
+	 * Propagates and reconciles concurrent edits made to both the Ecore source model and the
+	 * SQL target model since the last synchronisation point.
+	 *
+	 * <p>Runs each rule's {@link Elem2Elem#synch()} in the same pipeline order as
+	 * {@link #sourceToTarget()}/{@link #targetToSource()} (later rules depend on correspondences
+	 * established by earlier ones), then cleans up dangling correspondences on both sides.</p>
+	 */
+	def void synch() {
+		for (Elem2Elem e : rules)
+			e.synch()
+
+		// handle deletions
+		deleteUnreferencedSourceElements
+		deleteUnreferencedTargetElements
+	}
+
 	/**
 	 * Placeholder consistency check; currently always returns {@code true}.
 	 * May be extended in the future to verify that all correspondences are valid.
@@ -295,6 +312,11 @@ class Ecore2sqlTransformation {
 			deletionList += c.sourceElement
 			deletionList += c
 		]
-		deletionList.forEach[e | EcoreUtil.delete(e, true)]
+		// A corr's sourceElement can already be null here too (e.g. it was already
+		// dangling on the source side from an earlier partial deletion, or synch()'s
+		// re-run of sourceToTarget() churned through a redundant correspondence for a
+		// bidirectional cross-reference); guard against EcoreUtil.delete(null, ...),
+		// mirroring the equivalent guard in deleteUnreferencedTargetElements().
+		deletionList.forEach[e | if (e !== null) EcoreUtil.delete(e, true)]
 	}
 }

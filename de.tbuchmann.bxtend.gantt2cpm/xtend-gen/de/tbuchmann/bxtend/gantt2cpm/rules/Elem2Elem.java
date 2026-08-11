@@ -121,6 +121,28 @@ public abstract class Elem2Elem {
   protected static Map<EObject, Corr> elementsToCorr = CollectionLiterals.<EObject, Corr>newHashMap();
 
   /**
+   * Shared, static map from a {@link Corr} to the identity key (typically the
+   * {@code name}) of its source element as observed at the end of the last
+   * {@link #synch()} pass.  Used by {@link #synch()} implementations to detect
+   * whether the source-side identity changed since the last synchronisation, in
+   * which case the change is propagated forward; otherwise target-side changes
+   * are pulled backward into the source element.
+   */
+  protected static Map<Corr, String> corrToName = CollectionLiterals.<Corr, String>newHashMap();
+
+  /**
+   * Shared, static map from a {@link Corr} to the numeric attribute value
+   * ({@code Activity.duration} or, for dependency arcs, the {@code Dependency.offset}
+   * mirrored into {@code Activity.duration}) observed at the end of the last
+   * synchronisation.  Unlike the identity key ({@link #corrToName}), this attribute
+   * can change independently on either side without affecting the correspondence's
+   * identity, so {@code synch()} implementations compare <em>both</em> sides against
+   * this last-known value to decide whether to push, pull, or (if both changed) let
+   * the source win.
+   */
+  protected static Map<Corr, Integer> corrToDuration = CollectionLiterals.<Corr, Integer>newHashMap();
+
+  /**
    * Constructs the base rule, wires the three model resources, and populates
    * {@link #elementsToCorr} from the persisted correspondence model.
    * 
@@ -153,6 +175,14 @@ public abstract class Elem2Elem {
    * Override in concrete rule subclasses; the default implementation is a no-op.
    */
   public void targetToSource() {
+  }
+
+  /**
+   * Reconciles concurrent edits made to both the source (Gantt) and target (CPM)
+   * models since the last synchronisation point.  Override in concrete rule
+   * subclasses; the default implementation is a no-op.
+   */
+  public void synch() {
   }
 
   /**

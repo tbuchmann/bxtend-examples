@@ -82,7 +82,54 @@ class MySet2MyOrderedSet extends Elem2Elem {
 			val corr = target.getOrCreateCorrModelElement(ruleID);
 			val source = corr.getOrCreateSourceElem(sourcePackage.mySet) as MySet;
 			source.setName(target.getName());
-			sourceModel.contents += source	
+			sourceModel.contents += source
+		]
+	}
+
+	/**
+	 * Reconciles the root {@code MySet} ↔ {@code MyOrderedSet} pair. Both models are
+	 * single-root, so there is normally at most one unmatched element per side.
+	 *
+	 * <ol>
+	 *   <li>If already linked, push the name forward when it changed on the source since
+	 *       the last synchronisation ({@link #corrToName}), otherwise pull it backward.</li>
+	 *   <li>If unlinked, re-link to an unmatched same-named container, or create a new one.</li>
+	 *   <li>Any container still unmatched afterwards is used to create the missing
+	 *       counterpart (target-side insertion).</li>
+	 * </ol>
+	 */
+	override void synch() {
+		val setList = sourceModel.allContents.filter(typeof(MySet)).toList
+		val unmatchedSets = targetModel.allContents.filter(typeof(MyOrderedSet)).filter[s | s.corrModelElem === null].toList
+
+		setList.forEach [ source |
+			val corr = source.getOrCreateCorrModelElement(ruleID)
+			var target = corr.targetElement as MyOrderedSet
+			if (target !== null) {
+				unmatchedSets.remove(target)
+				if (corrToName.get(corr) != source.name)
+					target.name = source.name
+				else
+					source.name = target.name
+			} else {
+				target = unmatchedSets.findFirst[t | t.name == source.name]
+				if (target !== null) {
+					corr.targetElement = target
+					elementsToCorr.put(target, corr)
+					unmatchedSets.remove(target)
+				} else {
+					target = corr.getOrCreateTargetElem(targetPackage.myOrderedSet) as MyOrderedSet => [name = source.name]
+					targetModel.contents += target
+				}
+			}
+			corrToName.put(corr, source.name)
+		]
+
+		unmatchedSets.forEach [ target |
+			val corr = target.getOrCreateCorrModelElement(ruleID)
+			val source = corr.getOrCreateSourceElem(sourcePackage.mySet) as MySet => [name = target.name]
+			sourceModel.contents += source
+			corrToName.put(corr, source.name)
 		]
 	}
 }

@@ -108,5 +108,25 @@ class Package2Schema extends Elem2Elem {
 				sourceModel.contents += ep
 			]
 	}
-	
+
+	/**
+	 * Reconciles concurrent edits: re-runs {@link #sourceToTarget()} (idempotent, reasserts
+	 * existing package/schema correspondences and creates schemas for new packages), then
+	 * absorbs any {@link Schema} that still has no correspondence at all — a genuine
+	 * target-side insertion — using the same logic as {@link #targetToSource()}.
+	 */
+	override void synch() {
+		sourceToTarget()
+		targetModel.allContents.filter(typeof(Schema)).filter[corrModelElem === null]
+			.forEach[sc |
+				val corr = sc.getOrCreateCorrModelElement(ruleID)
+				val ep = corr.getOrCreateSourceElem(sourcePackage.EPackage) as EPackage => [
+					name = sc.name
+					nsPrefix = sc.name
+					nsURI = sc.name
+				]
+				sourceModel.contents += ep
+			]
+	}
+
 }

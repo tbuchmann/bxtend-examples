@@ -185,6 +185,24 @@ public class Gantt2cpmTransformation {
   }
 
   /**
+   * Drives the synchronisation pass, reconciling concurrent edits made to both
+   * the Gantt and the CPM model since the last synchronisation point.
+   * 
+   * <p>Executes each rule's {@link Elem2Elem#synch()} in order (the same order
+   * used for {@link #sourceToTarget()}/{@link #targetToSource()}, since
+   * {@link Dependency2Activity} depends on correspondences already established
+   * by {@link Activity2Activity}), then cleans up dangling correspondences on
+   * both sides.
+   */
+  public void synch() {
+    for (final Elem2Elem e : this.rules) {
+      e.synch();
+    }
+    this.deleteUnreferencedSourceElements();
+    this.deleteUnreferencedTargetElements();
+  }
+
+  /**
    * Verifies that the correspondence model is in a consistent state.
    * 
    * <p>Currently always returns {@code true}; reserved for future consistency

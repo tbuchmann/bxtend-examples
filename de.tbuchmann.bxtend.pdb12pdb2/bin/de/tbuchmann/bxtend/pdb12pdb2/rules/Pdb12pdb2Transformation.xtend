@@ -161,6 +161,22 @@ class Pdb12pdb2Transformation {
 	}
 
 	/**
+	 * Runs all rules' synchronisation direction, reconciling concurrent edits made to both
+	 * the PDB1 and PDB2 models since the last synchronisation point.
+	 *
+	 * <p>Executes each rule's {@link Elem2Elem#synch()} in the same registration order as
+	 * {@link #sourceToTarget()}/{@link #targetToSource()}, then cleans up dangling
+	 * correspondences on both sides.</p>
+	 */
+	def void synch() {
+		for (Elem2Elem e : rules)
+			e.synch()
+
+		deleteUnreferencedSourceElements
+		deleteUnreferencedTargetElements
+	}
+
+	/**
 	 * Placeholder for checking that all correspondences are valid (both sides
 	 * present and consistent). Currently always returns {@code true}.
 	 *

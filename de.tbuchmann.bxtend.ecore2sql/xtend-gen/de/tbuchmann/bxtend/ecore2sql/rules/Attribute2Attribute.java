@@ -124,6 +124,7 @@ public class Attribute2Attribute extends Class2Table {
         EList<Column> _ownedColumns = parentTable.getOwnedColumns();
         _ownedColumns.add(col);
         this.addAnnotations(col, Arrays.<String>asList("attribute", "single"));
+        Elem2Elem.corrToName.put(corr, col.getName());
       } else {
         EObject _orCreateTargetElem_2 = this.getOrCreateTargetElem(corr, this.targetPackage.getTable());
         final NamedElement c_1 = ((NamedElement) _orCreateTargetElem_2);
@@ -157,6 +158,7 @@ public class Attribute2Attribute extends Class2Table {
         }
         this.createColumn(tab, "value", this.columnType(att));
         this.addAnnotations(tab, Arrays.<String>asList("attribute", "multi"));
+        Elem2Elem.corrToName.put(corr, tab.getName());
       }
     };
     IteratorExtensions.<EAttribute>forEach(Iterators.<EAttribute>filter(this.sourceModel.getAllContents(), EAttribute.class), _function);
@@ -191,6 +193,7 @@ public class Attribute2Attribute extends Class2Table {
       EObject _sourceElement = this.getCorrModelElem(col.getOwningTable()).getSourceElement();
       EList<EStructuralFeature> _eStructuralFeatures = ((EClass) _sourceElement).getEStructuralFeatures();
       _eStructuralFeatures.add(att);
+      Elem2Elem.corrToName.put(corr, att.getName());
     };
     IteratorExtensions.<Column>forEach(IteratorExtensions.<Column>filter(Iterators.<Column>filter(this.targetModel.getAllContents(), Column.class), _function), _function_1);
     final Function1<Table, Boolean> _function_2 = (Table t) -> {
@@ -219,8 +222,166 @@ public class Attribute2Attribute extends Class2Table {
       final EClass parentEClass = this.findClassByName(tab.getName().split("_")[0]);
       EList<EStructuralFeature> _eStructuralFeatures = parentEClass.getEStructuralFeatures();
       _eStructuralFeatures.add(attr);
+      Elem2Elem.corrToName.put(corr, attr.getName());
     };
     IteratorExtensions.<Table>forEach(IteratorExtensions.<Table>filter(Iterators.<Table>filter(this.targetModel.getAllContents(), Table.class), _function_2), _function_3);
+  }
+
+  /**
+   * Reconciles concurrent edits to {@code EAttribute} ↔ {@code Column}/{@code Table} pairs.
+   * 
+   * <p>Unlike most other rules in this project, this one does <em>not</em> simply re-run
+   * {@link #sourceToTarget()}: {@code EAttribute.name} and {@code Column.name}/{@code Table.name}
+   * (derived from the attribute name) can each be renamed independently on their own side, so
+   * blindly pushing the source's name forward would silently discard a target-side rename. For
+   * every existing correspondence the name is instead resolved against the last-known snapshot
+   * ({@link #corrToName}): if only the target changed, the target's name wins outright — per
+   * this benchmark's {@code SyncConflictPolicy.TARGET_WINS} — otherwise the source's (possibly
+   * changed) name is pushed forward. Multiplicity (single ↔ multi) changes remain purely
+   * source-driven, matching {@link #sourceToTarget()}'s existing type-swap behaviour. Any
+   * {@code "attribute"}-annotated {@link Column}/{@link Table} that still has no correspondence
+   * at all is absorbed as a genuine target-side insertion, mirroring {@link #targetToSource()}.
+   */
+  @Override
+  public void synch() {
+    final Procedure1<EAttribute> _function = (EAttribute att) -> {
+      final Corr corr = this.getOrCreateCorrModelElement(att, this.ruleID);
+      final String lastName = Elem2Elem.corrToName.get(corr);
+      int _upperBound = att.getUpperBound();
+      boolean _equals = (_upperBound == 1);
+      if (_equals) {
+        EObject _orCreateTargetElem = this.getOrCreateTargetElem(corr, this.targetPackage.getColumn());
+        final NamedElement c = ((NamedElement) _orCreateTargetElem);
+        Column col = null;
+        if ((c instanceof Table)) {
+          EcoreUtil.delete(c, true);
+          EObject _orCreateTargetElem_1 = this.getOrCreateTargetElem(corr, this.targetPackage.getColumn());
+          col = ((Column) _orCreateTargetElem_1);
+          col.setName(att.getName());
+        } else {
+          col = ((Column) c);
+          final boolean targetChanged = ((lastName != null) && (!Objects.equals(lastName, col.getName())));
+          final boolean sourceChanged = ((lastName == null) || (!Objects.equals(lastName, att.getName())));
+          if (targetChanged) {
+            att.setName(col.getName());
+          } else {
+            if (sourceChanged) {
+              col.setName(att.getName());
+            }
+          }
+        }
+        this.addColumnType(col, att);
+        EObject _targetElement = this.getCorrModelElem(att.getEContainingClass()).getTargetElement();
+        final Table parentTable = ((Table) _targetElement);
+        EList<Column> _ownedColumns = parentTable.getOwnedColumns();
+        _ownedColumns.add(col);
+        this.addAnnotations(col, Arrays.<String>asList("attribute", "single"));
+        Elem2Elem.corrToName.put(corr, col.getName());
+      } else {
+        EObject _orCreateTargetElem_2 = this.getOrCreateTargetElem(corr, this.targetPackage.getTable());
+        final NamedElement c_1 = ((NamedElement) _orCreateTargetElem_2);
+        Table tab = null;
+        String _name = att.getEContainingClass().getName();
+        String _plus = (_name + "_");
+        String _name_1 = att.getName();
+        final String desiredName = (_plus + _name_1);
+        if ((c_1 instanceof Column)) {
+          EcoreUtil.delete(c_1, true);
+          EObject _orCreateTargetElem_3 = this.getOrCreateTargetElem(corr, this.targetPackage.getTable());
+          tab = ((Table) _orCreateTargetElem_3);
+          tab.setName(desiredName);
+        } else {
+          tab = ((Table) c_1);
+          final boolean targetChanged_1 = ((lastName != null) && (!Objects.equals(lastName, tab.getName())));
+          final boolean sourceChanged_1 = ((lastName == null) || (!Objects.equals(lastName, desiredName)));
+          if (targetChanged_1) {
+            final String[] parts = tab.getName().split("_", 2);
+            int _length = parts.length;
+            boolean _equals_1 = (_length == 2);
+            if (_equals_1) {
+              att.setName(parts[1]);
+            }
+          } else {
+            if (sourceChanged_1) {
+              tab.setName(desiredName);
+            }
+          }
+        }
+        EObject _targetElement_1 = this.getCorrModelElem(att.getEContainingClass().getEPackage()).getTargetElement();
+        final Schema schema = ((Schema) _targetElement_1);
+        EList<Table> _ownedTables = schema.getOwnedTables();
+        _ownedTables.add(tab);
+        final Function1<ForeignKey, Boolean> _function_1 = (ForeignKey it) -> {
+          String _name_2 = it.getColumn().getName();
+          return Boolean.valueOf(Objects.equals(_name_2, "id"));
+        };
+        boolean _exists = IterableExtensions.<ForeignKey>exists(tab.getOwnedForeignKeys(), _function_1);
+        boolean _not = (!_exists);
+        if (_not) {
+          EObject _targetElement_2 = this.getCorrModelElem(att.getEContainingClass()).getTargetElement();
+          EList<Property> _properties = this.createForeignKeyAttr(tab, "id", ((Table) _targetElement_2)).getProperties();
+          _properties.add(Property.NOT_NULL);
+        }
+        this.createColumn(tab, "value", this.columnType(att));
+        this.addAnnotations(tab, Arrays.<String>asList("attribute", "multi"));
+        Elem2Elem.corrToName.put(corr, tab.getName());
+      }
+    };
+    IteratorExtensions.<EAttribute>forEach(Iterators.<EAttribute>filter(this.sourceModel.getAllContents(), EAttribute.class), _function);
+    final Function1<Column, Boolean> _function_1 = (Column it) -> {
+      final Function1<Annotation, Boolean> _function_2 = (Annotation it_1) -> {
+        String _annotation = it_1.getAnnotation();
+        return Boolean.valueOf(Objects.equals(_annotation, "attribute"));
+      };
+      return Boolean.valueOf(IterableExtensions.<Annotation>exists(it.getOwnedAnnotations(), _function_2));
+    };
+    final Function1<Column, Boolean> _function_2 = (Column it) -> {
+      Corr _corrModelElem = this.getCorrModelElem(it);
+      return Boolean.valueOf((_corrModelElem == null));
+    };
+    final Procedure1<Column> _function_3 = (Column col) -> {
+      final Corr corr = this.getOrCreateCorrModelElement(col, this.ruleID);
+      EObject _orCreateSourceElem = this.getOrCreateSourceElem(corr, this.sourcePackage.getEAttribute());
+      final EAttribute att = ((EAttribute) _orCreateSourceElem);
+      att.setName(col.getName());
+      att.setUpperBound(1);
+      this.addAttributeType(att, col);
+      EObject _sourceElement = this.getCorrModelElem(col.getOwningTable()).getSourceElement();
+      EList<EStructuralFeature> _eStructuralFeatures = ((EClass) _sourceElement).getEStructuralFeatures();
+      _eStructuralFeatures.add(att);
+      Elem2Elem.corrToName.put(corr, att.getName());
+    };
+    IteratorExtensions.<Column>forEach(IteratorExtensions.<Column>filter(IteratorExtensions.<Column>filter(Iterators.<Column>filter(this.targetModel.getAllContents(), Column.class), _function_1), _function_2), _function_3);
+    final Function1<Table, Boolean> _function_4 = (Table t) -> {
+      return Boolean.valueOf((IterableExtensions.<Annotation>exists(t.getOwnedAnnotations(), ((Function1<Annotation, Boolean>) (Annotation a) -> {
+        String _annotation = a.getAnnotation();
+        return Boolean.valueOf(Objects.equals(_annotation, "multi"));
+      })) && IterableExtensions.<Annotation>exists(t.getOwnedAnnotations(), ((Function1<Annotation, Boolean>) (Annotation it) -> {
+        String _annotation = it.getAnnotation();
+        return Boolean.valueOf(Objects.equals(_annotation, "attribute"));
+      }))));
+    };
+    final Function1<Table, Boolean> _function_5 = (Table it) -> {
+      Corr _corrModelElem = this.getCorrModelElem(it);
+      return Boolean.valueOf((_corrModelElem == null));
+    };
+    final Procedure1<Table> _function_6 = (Table tab) -> {
+      final Corr corr = this.getOrCreateCorrModelElement(tab, this.ruleID);
+      EObject _orCreateSourceElem = this.getOrCreateSourceElem(corr, this.sourcePackage.getEAttribute());
+      final EAttribute attr = ((EAttribute) _orCreateSourceElem);
+      attr.setName(tab.getName().split("_")[1]);
+      final Function1<Column, Boolean> _function_7 = (Column c) -> {
+        String _name = c.getName();
+        return Boolean.valueOf(Objects.equals(_name, "value"));
+      };
+      this.addAttributeType(attr, IterableExtensions.<Column>findFirst(tab.getOwnedColumns(), _function_7));
+      attr.setUpperBound((-1));
+      final EClass parentEClass = this.findClassByName(tab.getName().split("_")[0]);
+      EList<EStructuralFeature> _eStructuralFeatures = parentEClass.getEStructuralFeatures();
+      _eStructuralFeatures.add(attr);
+      Elem2Elem.corrToName.put(corr, attr.getName());
+    };
+    IteratorExtensions.<Table>forEach(IteratorExtensions.<Table>filter(IteratorExtensions.<Table>filter(Iterators.<Table>filter(this.targetModel.getAllContents(), Table.class), _function_4), _function_5), _function_6);
   }
 
   /**

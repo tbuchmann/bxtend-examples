@@ -165,7 +165,26 @@ class Gantt2cpmTransformation {
 		// handle deletions
 		deleteUnreferencedSourceElements
 	}
-	
+
+	/**
+	 * Drives the synchronisation pass, reconciling concurrent edits made to both
+	 * the Gantt and the CPM model since the last synchronisation point.
+	 *
+	 * <p>Executes each rule's {@link Elem2Elem#synch()} in order (the same order
+	 * used for {@link #sourceToTarget()}/{@link #targetToSource()}, since
+	 * {@link Dependency2Activity} depends on correspondences already established
+	 * by {@link Activity2Activity}), then cleans up dangling correspondences on
+	 * both sides.
+	 */
+	def void synch() {
+		for (Elem2Elem e : rules)
+			e.synch()
+
+		// handle deletions
+		deleteUnreferencedSourceElements
+		deleteUnreferencedTargetElements
+	}
+
 	/**
 	 * Verifies that the correspondence model is in a consistent state.
 	 *

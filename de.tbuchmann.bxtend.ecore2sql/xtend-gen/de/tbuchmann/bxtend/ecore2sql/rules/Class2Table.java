@@ -174,6 +174,48 @@ public class Class2Table extends Elem2Elem {
   }
 
   /**
+   * Reconciles concurrent edits: re-runs {@link #sourceToTarget()} (idempotent, reasserts
+   * existing class/table correspondences and creates tables for new classes), then absorbs
+   * any {@code "class"}-annotated {@link Table} that still has no correspondence at all — a
+   * genuine target-side insertion — using the same logic as {@link #targetToSource()}.
+   */
+  @Override
+  public void synch() {
+    this.sourceToTarget();
+    final Function1<Table, Boolean> _function = (Table t) -> {
+      String _name = t.getName();
+      return Boolean.valueOf((!Objects.equals(_name, "EObject")));
+    };
+    final Function1<Table, Boolean> _function_1 = (Table it) -> {
+      final Function1<Annotation, Boolean> _function_2 = (Annotation it_1) -> {
+        String _annotation = it_1.getAnnotation();
+        return Boolean.valueOf(Objects.equals(_annotation, "class"));
+      };
+      return Boolean.valueOf(IterableExtensions.<Annotation>exists(it.getOwnedAnnotations(), _function_2));
+    };
+    final Function1<Table, Boolean> _function_2 = (Table it) -> {
+      Corr _corrModelElem = this.getCorrModelElem(it);
+      return Boolean.valueOf((_corrModelElem == null));
+    };
+    final Procedure1<Table> _function_3 = (Table tbl) -> {
+      final Corr corr = this.getOrCreateCorrModelElement(tbl, this.ruleID);
+      EObject _orCreateSourceElem = this.getOrCreateSourceElem(corr, this.sourcePackage.getEClass());
+      final EClass ec = ((EClass) _orCreateSourceElem);
+      ec.setName(tbl.getName());
+      final Function1<Annotation, Boolean> _function_4 = (Annotation a) -> {
+        String _annotation = a.getAnnotation();
+        return Boolean.valueOf(Objects.equals(_annotation, "abstract"));
+      };
+      ec.setAbstract(IterableExtensions.<Annotation>exists(tbl.getOwnedAnnotations(), _function_4));
+      EObject _sourceElement = this.getCorrModelElem(tbl.getOwningSchema()).getSourceElement();
+      final EPackage ep = ((EPackage) _sourceElement);
+      EList<EClassifier> _eClassifiers = ep.getEClassifiers();
+      _eClassifiers.add(ec);
+    };
+    IteratorExtensions.<Table>forEach(IteratorExtensions.<Table>filter(IteratorExtensions.<Table>filter(IteratorExtensions.<Table>filter(Iterators.<Table>filter(this.targetModel.getAllContents(), Table.class), _function), _function_1), _function_2), _function_3);
+  }
+
+  /**
    * Creates an {@code id INT NOT NULL} {@link sql.Column} and an associated
    * {@link sql.PrimaryKey} on the given table, representing the class-level primary key.
    * 

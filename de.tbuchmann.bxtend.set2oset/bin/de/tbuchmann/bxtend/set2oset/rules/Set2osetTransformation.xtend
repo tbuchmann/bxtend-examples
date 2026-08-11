@@ -197,7 +197,24 @@ class Set2osetTransformation {
 		// Remove source elements that no longer have a target counterpart.
 		deleteUnreferencedSourceElements
 	}
-	
+
+	/**
+	 * Synchronisation entry point: reconciles concurrent edits made to both the source and
+	 * target models since the last synchronisation point.
+	 *
+	 * <p>Executes each rule's {@link Elem2Elem#synch()} in the same registration order as
+	 * {@link #sourceToTarget()}/{@link #targetToSource()}, then cleans up dangling
+	 * correspondences on both sides (reusing the same manually-patched deletion helpers that
+	 * repair the {@code osets.Element} doubly-linked list).</p>
+	 */
+	def void synch() {
+		for (Elem2Elem e : rules)
+			e.synch()
+
+		deleteUnreferencedSourceElements
+		deleteUnreferencedTargetElements
+	}
+
 	/**
 	 * Checks whether the current source and target models are mutually consistent according
 	 * to the correspondence model.

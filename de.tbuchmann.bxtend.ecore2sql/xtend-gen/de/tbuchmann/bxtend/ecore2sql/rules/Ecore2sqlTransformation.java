@@ -216,6 +216,22 @@ public class Ecore2sqlTransformation {
   }
 
   /**
+   * Propagates and reconciles concurrent edits made to both the Ecore source model and the
+   * SQL target model since the last synchronisation point.
+   * 
+   * <p>Runs each rule's {@link Elem2Elem#synch()} in the same pipeline order as
+   * {@link #sourceToTarget()}/{@link #targetToSource()} (later rules depend on correspondences
+   * established by earlier ones), then cleans up dangling correspondences on both sides.</p>
+   */
+  public void synch() {
+    for (final Elem2Elem e : this.rules) {
+      e.synch();
+    }
+    this.deleteUnreferencedSourceElements();
+    this.deleteUnreferencedTargetElements();
+  }
+
+  /**
    * Placeholder consistency check; currently always returns {@code true}.
    * May be extended in the future to verify that all correspondences are valid.
    * 
@@ -359,7 +375,9 @@ public class Ecore2sqlTransformation {
     };
     IteratorExtensions.<Corr>forEach(this.detectTargetDeletions(), _function);
     final Consumer<EObject> _function_1 = (EObject e) -> {
-      EcoreUtil.delete(e, true);
+      if ((e != null)) {
+        EcoreUtil.delete(e, true);
+      }
     };
     deletionList.forEach(_function_1);
   }
