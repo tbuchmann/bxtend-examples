@@ -77,6 +77,7 @@ public class MySet2MyOrderedSet extends Elem2Elem {
       target.setName(source.getName());
       EList<EObject> _contents = this.targetModel.getContents();
       _contents.add(target);
+      Elem2Elem.corrToName.put(corr, source.getName());
     };
     IteratorExtensions.<MySet>forEach(Iterators.<MySet>filter(this.sourceModel.getAllContents(), MySet.class), _function);
   }
@@ -102,6 +103,7 @@ public class MySet2MyOrderedSet extends Elem2Elem {
       source.setName(target.getName());
       EList<EObject> _contents = this.sourceModel.getContents();
       _contents.add(source);
+      Elem2Elem.corrToName.put(corr, source.getName());
     };
     IteratorExtensions.<MyOrderedSet>forEach(Iterators.<MyOrderedSet>filter(this.targetModel.getAllContents(), MyOrderedSet.class), _function);
   }

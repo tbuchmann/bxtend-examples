@@ -227,7 +227,11 @@ class Pdb12pdb2Transformation {
 			deletionList += c.targetElement
 			deletionList += c
 		]
-		deletionList.forEach[e | EcoreUtil.delete(e, true)]
+		// A collected element can already be null here (e.g. a combined parent+child
+		// deletion where deleting the parent's target element cascades - via EMF
+		// cross-reference cleanup - to already clear a sibling correspondence's
+		// targetElement before this batch reaches it); guard against EcoreUtil.delete(null, ...).
+		deletionList.forEach[e | if (e !== null) EcoreUtil.delete(e, true)]
 	}
 
 	/**
@@ -246,6 +250,9 @@ class Pdb12pdb2Transformation {
 			deletionList += c.sourceElement
 			deletionList += c
 		]
-		deletionList.forEach[e | EcoreUtil.delete(e, true)]
+		// See the matching guard in deleteUnreferencedTargetElements() above - a collected
+		// element can already be null here for the same reason (cascading cross-reference
+		// cleanup from a combined parent+child deletion within the same batch).
+		deletionList.forEach[e | if (e !== null) EcoreUtil.delete(e, true)]
 	}
 }

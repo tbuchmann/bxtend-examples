@@ -90,6 +90,17 @@ abstract class Elem2Elem {
 	protected static Map<Corr, String> corrToName = newHashMap
 
 	/**
+	 * Shared, static snapshot maps for {@code Person} attributes that can change
+	 * independently of the name key ({@code birthday}, {@code placeOfBirth}, {@code id}).
+	 * Used by {@link Person2Person#synch()} to resolve push/pull for each attribute on
+	 * its own, since a concurrent edit can touch one of these without touching the name
+	 * at all (see {@code MonotonicDeleting#testCombinedMatchingDeletion}).
+	 */
+	protected static Map<Corr, String> corrToBirthday = newHashMap
+	protected static Map<Corr, String> corrToPlaceOfBirth = newHashMap
+	protected static Map<Corr, String> corrToId = newHashMap
+
+	/**
 	 * Initialises the rule with the three participating EMF resources and pre-populates
 	 * the {@code elementsToCorr} index from the existing correspondence model contents.
 	 *

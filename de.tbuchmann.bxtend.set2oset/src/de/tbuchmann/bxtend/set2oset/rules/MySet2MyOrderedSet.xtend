@@ -62,6 +62,7 @@ class MySet2MyOrderedSet extends Elem2Elem {
 			val target = corr.getOrCreateTargetElem(targetPackage.myOrderedSet) as MyOrderedSet;
 			target.setName(source.getName());
 			targetModel.contents += target
+			corrToName.put(corr, source.name)
 		]
 	}
 
@@ -83,6 +84,7 @@ class MySet2MyOrderedSet extends Elem2Elem {
 			val source = corr.getOrCreateSourceElem(sourcePackage.mySet) as MySet;
 			source.setName(target.getName());
 			sourceModel.contents += source
+			corrToName.put(corr, source.name)
 		]
 	}
 

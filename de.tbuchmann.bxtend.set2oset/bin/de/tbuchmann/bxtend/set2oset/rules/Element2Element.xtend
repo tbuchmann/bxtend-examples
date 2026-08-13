@@ -110,7 +110,12 @@ class Element2Element extends Elem2Elem {
 			// Synchronise the value attribute and wire the containment to MyOrderedSet.
 			target.value = source.value;
 			target.orderedSet = source.eContainer.corrModelElem.targetElement as MyOrderedSet;
-		}		
+			// Seed corrToName here too (not just in synch()): a correspondence created via
+			// this plain forward path must not look "unsynced" (null) to a later synch()
+			// call, which would otherwise treat the null as "source changed" and push the
+			// stale source value back over a legitimate concurrent target-side rename.
+			corrToName.put(corr, source.value)
+		}
 	}
 
 	/**
@@ -135,6 +140,7 @@ class Element2Element extends Elem2Elem {
 			val source = corr.getOrCreateSourceElem(sourcePackage.element) as sets.Element;
 			source.value = target.value;
 			source.set = target.eContainer.corrModelElem.sourceElement as MySet;
+			corrToName.put(corr, source.value)
 		]
 	}
 
@@ -158,7 +164,10 @@ class Element2Element extends Elem2Elem {
 		val unmatched = targetModel.allContents.filter(typeof(Element)).filter[e | e.corrModelElem === null].toList
 		var Element tail = targetModel.allContents.filter(typeof(Element)).findFirst[next === null]
 
-		elemList.forEach [ source |
+		// Plain for loops (not forEach closures) because Xtend compiles forEach[...] to a
+		// native Java lambda, which requires captured locals like `tail` to be effectively
+		// final; a for loop allows the reassignment below.
+		for (source : elemList) {
 			val corr = source.getOrCreateCorrModelElement(ruleID)
 			var target = corr.targetElement as Element
 			if (target !== null) {
@@ -182,13 +191,13 @@ class Element2Element extends Elem2Elem {
 				target.orderedSet = source.eContainer.corrModelElem.targetElement as MyOrderedSet
 			}
 			corrToName.put(corr, source.value)
-		]
+		}
 
-		unmatched.forEach [ target |
+		for (target : unmatched) {
 			val corr = target.getOrCreateCorrModelElement(ruleID)
 			val source = corr.getOrCreateSourceElem(sourcePackage.element) as sets.Element => [value = target.value]
 			source.set = target.eContainer.corrModelElem.sourceElement as MySet
 			corrToName.put(corr, source.value)
-		]
+		}
 	}
 }

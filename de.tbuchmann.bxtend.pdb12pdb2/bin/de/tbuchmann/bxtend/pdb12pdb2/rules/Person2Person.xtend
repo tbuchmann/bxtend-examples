@@ -21,13 +21,19 @@ import pdb2.Database
  *       inherently ambiguous (e.g. {@code "Konrad Hermann Joseph Adenauer"} could
  *       split at any space), the rule delegates the decision to the injected
  *       {@link de.tbuchmann.bxtend.pdb12pdb2.rules.decisions.TargetToSourceDecision}
- *       strategy. The split is only re-computed when the concatenated name in PDB1
- *       no longer matches the PDB2 {@code name}, avoiding unnecessary overwrites
- *       during incremental propagation.</li>
+ *       strategy. In {@link #targetToSource()} the split is re-derived whenever
+ *       <em>any</em> tracked attribute of the person changed since the last backward
+ *       call (not just the name text) — an untouched person keeps its previous split
+ *       even if the decision strategy changes in between; {@link #synch()} only
+ *       re-splits when the PDB2 {@code name} itself changed since the last
+ *       synchronisation (tracked via {@link #corrToName}).</li>
  * </ul>
  *
  * <p>The remaining attributes ({@code birthday}, {@code placeOfBirth}, {@code id})
- * are identical in both metamodels and are simply copied in both directions.</p>
+ * are identical in both metamodels and are simply copied in both directions; in
+ * {@link #synch()} each is tracked independently of the name (see
+ * {@link #corrToBirthday}, {@link #corrToPlaceOfBirth}, {@link #corrToId}), since a
+ * concurrent edit can change one of them without touching the name.</p>
  *
  * <p>The containment relationship ({@code database} reference) is resolved via the
  * correspondence model: the parent container of the source/target person is looked
@@ -75,6 +81,9 @@ class Person2Person extends Elem2Elem {
 			// Concatenate firstName and lastName into the single PDB2 name attribute.
 			target.name = source.firstName + ' ' + source.lastName;
 			corrToName.put(corr, target.name)
+			corrToBirthday.put(corr, source.birthday)
+			corrToPlaceOfBirth.put(corr, source.placeOfBirth)
+			corrToId.put(corr, source.id)
 		]
 	}
 
@@ -86,9 +95,12 @@ class Person2Person extends Elem2Elem {
 	 * <ul>
 	 *   <li>{@code birthday}, {@code placeOfBirth}, {@code id} → copied directly</li>
 	 *   <li>{@code name} → {@code firstName} + {@code lastName} via the injected
-	 *       {@link de.tbuchmann.bxtend.pdb12pdb2.rules.decisions.TargetToSourceDecision};
-	 *       the split is only applied when the current PDB1 concatenated name differs
-	 *       from the PDB2 name, preserving existing splits during incremental runs.</li>
+	 *       {@link de.tbuchmann.bxtend.pdb12pdb2.rules.decisions.TargetToSourceDecision}.
+	 *       The split is only re-derived when <em>something</em> about this person changed
+	 *       since the last backward propagation (name text, birthday, placeOfBirth, or id —
+	 *       tracked via the {@code corrTo*} snapshots); an entirely untouched person keeps
+	 *       whatever split was chosen last time even if the decision strategy changes in
+	 *       between (see {@link #synch()} below for why this is per-person, not per-name-text).</li>
 	 *   <li>parent {@code pdb2.Database} → corresponding {@code pdb1.Database}
 	 *       (resolved through the correspondence model)</li>
 	 * </ul>
@@ -99,19 +111,34 @@ class Person2Person extends Elem2Elem {
 			val corr = target.getOrCreateCorrModelElement(ruleID);
 			// Get or create the matching source Person element.
 			val source = corr.getOrCreateSourceElem(sourcePackage.person) as Person;
+			// Detect whether ANY tracked attribute of this person changed since the last
+			// backward call - not just the name text. The reference tool re-derives the
+			// ambiguous firstName/lastName split fresh (using the *current* decision
+			// strategy) whenever a person is touched at all, even via an unrelated
+			// attribute like `id`; a person nobody touched keeps its previous split
+			// unchanged even across a decision-strategy change. Verified against three
+			// independent fixtures: IncrementalBackward#testIncrementalInsertsDynamicConfig
+			// and #testHippocraticness both require untouched persons to keep their old
+			// split despite a config change; #testIncrementalValueChange requires a person
+			// touched only via `id` to get a fresh split under the new config.
+			val changed = corrToName.get(corr) != target.name
+				|| corrToBirthday.get(corr) != target.birthday
+				|| corrToPlaceOfBirth.get(corr) != target.placeOfBirth
+				|| corrToId.get(corr) != target.id
 			// Copy attributes that are structurally identical in both metamodels.
 			source.birthday = target.birthday;
 			source.placeOfBirth = target.placeOfBirth;
 			source.id = target.id;
 			// Resolve the parent database in the source model via the correspondence.
 			source.database = target.eContainer.corrModelElem.sourceElement as pdb1.Database;
-			// Only re-split the name when it has actually changed to avoid unnecessary
-			// overwrites of a previously user-set firstName/lastName combination.
-			if(source.firstName + " " + source.lastName != target.name) {
+			if (changed) {
 				source.firstName = decision.getFirstName(target.name)
 				source.lastName = decision.getLastName(target.name)
 			}
 			corrToName.put(corr, target.name)
+			corrToBirthday.put(corr, source.birthday)
+			corrToPlaceOfBirth.put(corr, source.placeOfBirth)
+			corrToId.put(corr, source.id)
 		]
 	}
 
@@ -125,11 +152,14 @@ class Person2Person extends Elem2Elem {
 	 * concatenation changed since the last synchronisation, it is pushed forward (verbatim,
 	 * as a plain string — no re-splitting needed since it originates as a PDB1 split
 	 * already); otherwise, if the PDB2 {@code name} changed, it is split back via the
-	 * injected {@link de.tbuchmann.bxtend.pdb12pdb2.rules.decisions.TargetToSourceDecision},
-	 * mirroring {@link #targetToSource()}'s hippocratic re-split guard. The remaining
-	 * attributes ({@code birthday}, {@code placeOfBirth}, {@code id}) are copied together
-	 * with whichever direction the name decision selects, since there is no test evidence
-	 * that they can change independently of the name in this benchmark's edit scripts.</p>
+	 * injected {@link de.tbuchmann.bxtend.pdb12pdb2.rules.decisions.TargetToSourceDecision}.</p>
+	 *
+	 * <p>The remaining attributes ({@code birthday}, {@code placeOfBirth}, {@code id}) are
+	 * <strong>not</strong> tied to the name decision — each is resolved independently against
+	 * its own snapshot ({@link #corrToBirthday}, {@link #corrToPlaceOfBirth}, {@link #corrToId}),
+	 * since a concurrent edit can change one of them while the name stays untouched (see
+	 * {@code MonotonicDeleting#testCombinedMatchingDeletion}, which changes only
+	 * {@code placeOfBirth} on the target side of an otherwise-unmodified person).</p>
 	 */
 	override void synch() {
 		val personList = sourceModel.allContents.filter(typeof(Person)).toList
@@ -143,22 +173,42 @@ class Person2Person extends Elem2Elem {
 				unmatched.remove(target)
 				val lastKey = corrToName.get(corr)
 				if (lastKey === null || sourceKey != lastKey) {
-					// source changed (or never synchronised yet): push everything forward
-					target.birthday = source.birthday
-					target.placeOfBirth = source.placeOfBirth
-					target.id = source.id
+					// source changed (or never synchronised yet): push the name forward
 					target.name = sourceKey
 					corrToName.put(corr, sourceKey)
 				} else if (target.name != lastKey) {
-					// only the target changed: pull everything backward
-					source.birthday = target.birthday
-					source.placeOfBirth = target.placeOfBirth
-					source.id = target.id
+					// only the target changed: pull the name backward
 					source.firstName = decision.getFirstName(target.name)
 					source.lastName = decision.getLastName(target.name)
 					corrToName.put(corr, target.name)
 				}
 				// else: neither side changed since the last synchronisation
+
+				// birthday, placeOfBirth and id can each change independently of the
+				// name (see MonotonicDeleting#testCombinedMatchingDeletion, where
+				// placeOfBirth changes on the target while the name stays put) - resolve
+				// each attribute separately against its own snapshot, source wins on a
+				// genuine conflict.
+				val lastBirthday = corrToBirthday.get(corr)
+				if (lastBirthday === null || source.birthday != lastBirthday)
+					target.birthday = source.birthday
+				else if (target.birthday != lastBirthday)
+					source.birthday = target.birthday
+				corrToBirthday.put(corr, source.birthday)
+
+				val lastPlaceOfBirth = corrToPlaceOfBirth.get(corr)
+				if (lastPlaceOfBirth === null || source.placeOfBirth != lastPlaceOfBirth)
+					target.placeOfBirth = source.placeOfBirth
+				else if (target.placeOfBirth != lastPlaceOfBirth)
+					source.placeOfBirth = target.placeOfBirth
+				corrToPlaceOfBirth.put(corr, source.placeOfBirth)
+
+				val lastId = corrToId.get(corr)
+				if (lastId === null || source.id != lastId)
+					target.id = source.id
+				else if (target.id != lastId)
+					source.id = target.id
+				corrToId.put(corr, source.id)
 			} else {
 				target = unmatched.findFirst[t | t.name == sourceKey]
 				if (target !== null) {
@@ -177,6 +227,9 @@ class Person2Person extends Elem2Elem {
 					target.database = source.eContainer.corrModelElem.targetElement as Database
 				}
 				corrToName.put(corr, sourceKey)
+				corrToBirthday.put(corr, source.birthday)
+				corrToPlaceOfBirth.put(corr, source.placeOfBirth)
+				corrToId.put(corr, source.id)
 			}
 		]
 
@@ -190,6 +243,9 @@ class Person2Person extends Elem2Elem {
 			source.firstName = decision.getFirstName(target.name)
 			source.lastName = decision.getLastName(target.name)
 			corrToName.put(corr, target.name)
+			corrToBirthday.put(corr, source.birthday)
+			corrToPlaceOfBirth.put(corr, source.placeOfBirth)
+			corrToId.put(corr, source.id)
 		]
 	}
 }

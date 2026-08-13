@@ -255,7 +255,9 @@ public class Pdb12pdb2Transformation {
     };
     IteratorExtensions.<Corr>forEach(this.detectSourceDeletions(), _function);
     final Consumer<EObject> _function_1 = (EObject e) -> {
-      EcoreUtil.delete(e, true);
+      if ((e != null)) {
+        EcoreUtil.delete(e, true);
+      }
     };
     deletionList.forEach(_function_1);
   }
@@ -275,7 +277,9 @@ public class Pdb12pdb2Transformation {
     };
     IteratorExtensions.<Corr>forEach(this.detectTargetDeletions(), _function);
     final Consumer<EObject> _function_1 = (EObject e) -> {
-      EcoreUtil.delete(e, true);
+      if ((e != null)) {
+        EcoreUtil.delete(e, true);
+      }
     };
     deletionList.forEach(_function_1);
   }

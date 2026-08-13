@@ -3,10 +3,14 @@ package de.tbuchmann.bxtend.set2oset.rules;
 import com.google.common.collect.Iterators;
 import de.tbuchmann.bxtend.set2oset.correspondence.set2oset.Corr;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.xtext.xbase.lib.Functions.Function1;
+import org.eclipse.xtext.xbase.lib.IterableExtensions;
 import org.eclipse.xtext.xbase.lib.IteratorExtensions;
+import org.eclipse.xtext.xbase.lib.ObjectExtensions;
 import org.eclipse.xtext.xbase.lib.Procedures.Procedure1;
 import osets.Element;
 import osets.MyOrderedSet;
@@ -122,6 +126,7 @@ public class Element2Element extends Elem2Elem {
         target.setValue(source.getValue());
         EObject _targetElement_1 = this.getCorrModelElem(source.eContainer()).getTargetElement();
         target.setOrderedSet(((MyOrderedSet) _targetElement_1));
+        Elem2Elem.corrToName.put(corr, source.getValue());
       }
     }
   }
@@ -151,6 +156,7 @@ public class Element2Element extends Elem2Elem {
       source.setValue(target.getValue());
       EObject _sourceElement = this.getCorrModelElem(target.eContainer()).getSourceElement();
       source.setSet(((MySet) _sourceElement));
+      Elem2Elem.corrToName.put(corr, source.getValue());
     };
     IteratorExtensions.<Element>forEach(Iterators.<Element>filter(this.targetModel.getAllContents(), Element.class), _function);
   }
@@ -172,8 +178,68 @@ public class Element2Element extends Elem2Elem {
    */
   @Override
   public void synch() {
-    throw new Error("Unresolved compilation problems:"
-      + "\nCannot refer to the non-final variable tail inside a lambda expression"
-      + "\nCannot refer to the non-final variable tail inside a lambda expression");
+    final List<sets.Element> elemList = IteratorExtensions.<sets.Element>toList(Iterators.<sets.Element>filter(this.sourceModel.getAllContents(), sets.Element.class));
+    final Function1<Element, Boolean> _function = (Element e) -> {
+      Corr _corrModelElem = this.getCorrModelElem(e);
+      return Boolean.valueOf((_corrModelElem == null));
+    };
+    final List<Element> unmatched = IteratorExtensions.<Element>toList(IteratorExtensions.<Element>filter(Iterators.<Element>filter(this.targetModel.getAllContents(), Element.class), _function));
+    final Function1<Element, Boolean> _function_1 = (Element it) -> {
+      Element _next = it.getNext();
+      return Boolean.valueOf((_next == null));
+    };
+    Element tail = IteratorExtensions.<Element>findFirst(Iterators.<Element>filter(this.targetModel.getAllContents(), Element.class), _function_1);
+    for (final sets.Element source : elemList) {
+      {
+        final Corr corr = this.getOrCreateCorrModelElement(source, this.ruleID);
+        EObject _targetElement = corr.getTargetElement();
+        Element target = ((Element) _targetElement);
+        if ((target != null)) {
+          unmatched.remove(target);
+          String _get = Elem2Elem.corrToName.get(corr);
+          String _value = source.getValue();
+          boolean _notEquals = (!Objects.equals(_get, _value));
+          if (_notEquals) {
+            target.setValue(source.getValue());
+          } else {
+            source.setValue(target.getValue());
+          }
+        } else {
+          final Function1<Element, Boolean> _function_2 = (Element t) -> {
+            String _value_1 = t.getValue();
+            String _value_2 = source.getValue();
+            return Boolean.valueOf(Objects.equals(_value_1, _value_2));
+          };
+          target = IterableExtensions.<Element>findFirst(unmatched, _function_2);
+          if ((target != null)) {
+            corr.setTargetElement(target);
+            Elem2Elem.elementsToCorr.put(target, corr);
+            unmatched.remove(target);
+          } else {
+            EObject _orCreateTargetElem = this.getOrCreateTargetElem(corr, this.targetPackage.getElement());
+            target = ((Element) _orCreateTargetElem);
+            target.setPrevious(tail);
+            tail = target;
+            target.setValue(source.getValue());
+          }
+          EObject _targetElement_1 = this.getCorrModelElem(source.eContainer()).getTargetElement();
+          target.setOrderedSet(((MyOrderedSet) _targetElement_1));
+        }
+        Elem2Elem.corrToName.put(corr, source.getValue());
+      }
+    }
+    for (final Element target : unmatched) {
+      {
+        final Corr corr = this.getOrCreateCorrModelElement(target, this.ruleID);
+        EObject _orCreateSourceElem = this.getOrCreateSourceElem(corr, this.sourcePackage.getElement());
+        final Procedure1<sets.Element> _function_2 = (sets.Element it) -> {
+          it.setValue(target.getValue());
+        };
+        final sets.Element source_1 = ObjectExtensions.<sets.Element>operator_doubleArrow(((sets.Element) _orCreateSourceElem), _function_2);
+        EObject _sourceElement = this.getCorrModelElem(target.eContainer()).getSourceElement();
+        source_1.setSet(((MySet) _sourceElement));
+        Elem2Elem.corrToName.put(corr, source_1.getValue());
+      }
+    }
   }
 }
