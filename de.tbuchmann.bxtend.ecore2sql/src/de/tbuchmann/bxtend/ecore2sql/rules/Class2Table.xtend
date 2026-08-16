@@ -1,14 +1,20 @@
 package de.tbuchmann.bxtend.ecore2sql.rules
 
+import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Corr
+import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Transformation
 import sql.Action
 import sql.Column
 import sql.Condition
 import sql.Property
 import sql.Schema
+import sql.SqlPackage
 import sql.Table
 import java.util.Arrays
+import java.util.Map
 import org.eclipse.emf.ecore.EClass
+import org.eclipse.emf.ecore.EObject
 import org.eclipse.emf.ecore.EPackage
+import org.eclipse.emf.ecore.EcorePackage
 import org.eclipse.emf.ecore.resource.Resource
 
 /**
@@ -79,9 +85,23 @@ class Class2Table extends Elem2Elem {
 	 * See class-level documentation for the detailed algorithm.
 	 */
 	override sourceToTarget() {
+		// getOrCreateCorrModelElement()'s cache-miss fallback (in the shared Elem2Elem base)
+		// does a full linear scan of the correspondence list for every genuinely-new object,
+		// since the miss could otherwise mean "not yet cached but exists" - for a from-scratch
+		// batch of n EClasses that turns this loop into O(n^2). Every EClass is looked up here
+		// exactly once, so a one-time snapshot of the *existing* correspondences at the top of
+		// this call is sufficient and safe: sourceToTarget() calls run sequentially, never
+		// interleaved, so nothing else can add a correspondence for an EClass between this
+		// snapshot and its use here - anything not in it is provably brand new and can go
+		// straight to creation instead of confirming absence via a scan.
+		val java.util.Map<EObject, Corr> existingCorrByObj = newHashMap
+		(corrModel.contents.get(0) as Transformation).correspondences.forEach[c |
+			if (c.sourceElement !== null) existingCorrByObj.put(c.sourceElement, c)
+		]
+
 		sourceModel.allContents.filter(typeof(EClass))
 			.forEach[ec |
-				val corr = ec.getOrCreateCorrModelElement(ruleID)
+				val corr = existingCorrByObj.get(ec) ?: ec.createCorrModelElementDirect(ruleID)
 				val tbl = corr.getOrCreateTargetElem(targetPackage.table) as Table
 				tbl.name = ec.name;
 				val schema = (ec.EPackage.corrModelElem.targetElement as Schema)
@@ -98,7 +118,7 @@ class Class2Table extends Elem2Elem {
 					key.column.properties += Property.UNIQUE
 					key.referencedTable = tbl
 				}
-										
+
 			]
 	}
 	
@@ -108,9 +128,20 @@ class Class2Table extends Elem2Elem {
 	 * See class-level documentation for the detailed algorithm.
 	 */
 	override targetToSource() {
+		// Same rationale and safety argument as sourceToTarget()'s snapshot (see its comment):
+		// every Table is looked up here exactly once, targetToSource() calls are never
+		// interleaved with anything that could add a correspondence for a Table behind this
+		// call's back, so a one-time snapshot - indexed by targetElement this time, since
+		// this loop looks up by the SQL-side object - is sufficient to let genuinely new
+		// Tables skip the O(n) scan-on-miss entirely.
+		val java.util.Map<EObject, Corr> existingCorrByObj = newHashMap
+		(corrModel.contents.get(0) as Transformation).correspondences.forEach[c |
+			if (c.targetElement !== null) existingCorrByObj.put(c.targetElement, c)
+		]
+
 		targetModel.allContents.filter(typeof(Table)).filter[t | t.name != "EObject"].filter[ownedAnnotations.exists[annotation == "class"]]
 			.forEach[tbl |
-				val corr = tbl.getOrCreateCorrModelElement(ruleID)
+				val corr = existingCorrByObj.get(tbl) ?: tbl.createCorrModelElementDirect(ruleID)
 				val ec = corr.getOrCreateSourceElem(sourcePackage.EClass) as EClass
 				ec.name = tbl.name
 				ec.abstract = tbl.ownedAnnotations.exists[a | a.annotation == "abstract"]
@@ -210,8 +241,45 @@ class Class2Table extends Elem2Elem {
 	 * @param schema the SQL schema to search
 	 * @return the {@link Table} named {@code "EObject"}, or {@code null} if absent
 	 */
+	// "EObject" is a single sentinel table created once (by Package2Schema) and never
+	// renamed or deleted, but the naive findFirst below rescans schema.ownedTables (which
+	// grows to one entry per EClass) on every single call - called from Class2Table's own
+	// per-EClass loop and from Generalization2Relation, this turns "create n classes" into
+	// O(n^2) all on its own. Self-healing: a hit is only trusted if the cached table still
+	// has the expected name; a miss falls back to the original scan and repopulates the
+	// cache, so behaviour is identical to the plain findFirst call, just O(1) amortized.
+	static Map<Schema, Table> eObjectTableCache = newHashMap
+
+	/**
+	 * Directly creates and registers a new {@link Corr} for {@code obj} under
+	 * {@code description}, without first checking (via {@link Elem2Elem#getCorrModelElem})
+	 * whether one already exists - that check is exactly the O(n) scan-on-miss this method
+	 * exists to avoid. Mirrors {@link Elem2Elem#getOrCreateCorrModelElement}'s creation
+	 * branch exactly, minus the existence check. <b>Only safe when the caller has already
+	 * established, by other means (e.g. a call-scoped snapshot of the correspondence list
+	 * taken at the top of a {@code sourceToTarget()} pass), that {@code obj} provably has
+	 * no existing correspondence</b> - calling this on an object that already has one would
+	 * create a duplicate {@link Corr} for it.
+	 */
+	def protected createCorrModelElementDirect(EObject obj, String description) {
+		val corr = corrFactory.createBasicElem => [
+			if (obj.eClass.EPackage instanceof EcorePackage)
+				sourceElement = obj
+			if (obj.eClass.EPackage instanceof SqlPackage)
+				targetElement = obj
+			desc = description
+		]
+		(corrModel.contents.get(0) as Transformation).correspondences += corr
+		elementsToCorr.put(obj, corr)
+		return corr
+	}
+
 	def eObjectTable(Schema schema) {
-		schema.ownedTables.findFirst[t | t.name.equals("EObject")]
+		val cached = eObjectTableCache.get(schema)
+		if (cached !== null && cached.name == "EObject") return cached
+		val found = schema.ownedTables.findFirst[t | t.name.equals("EObject")]
+		if (found !== null) eObjectTableCache.put(schema, found)
+		return found
 	}
 	
 	/**

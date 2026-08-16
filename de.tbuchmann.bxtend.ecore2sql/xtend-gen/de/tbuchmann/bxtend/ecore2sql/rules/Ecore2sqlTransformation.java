@@ -4,6 +4,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Corr;
 import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Ecore2sqlFactory;
+import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Transformation;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -132,6 +133,7 @@ public class Ecore2sqlTransformation {
     if (_equals) {
       this.corrModel.getContents().add(Ecore2sqlFactory.eINSTANCE.createTransformation());
     }
+    Elem2Elem.rebuildCorrespondenceCache(((Transformation) this.corrModel.getContents().get(0)).getCorrespondences());
     Package2Schema _package2Schema = new Package2Schema(this.sourceModel, this.targetModel, this.corrModel);
     this.rules.add(_package2Schema);
     Class2Table _class2Table = new Class2Table(this.sourceModel, this.targetModel, this.corrModel);
@@ -162,6 +164,7 @@ public class Ecore2sqlTransformation {
     if (_equals) {
       this.corrModel.getContents().add(Ecore2sqlFactory.eINSTANCE.createTransformation());
     }
+    Elem2Elem.rebuildCorrespondenceCache(((Transformation) this.corrModel.getContents().get(0)).getCorrespondences());
     Package2Schema _package2Schema = new Package2Schema(this.sourceModel, this.targetModel, this.corrModel);
     this.rules.add(_package2Schema);
     Class2Table _class2Table = new Class2Table(this.sourceModel, this.targetModel, this.corrModel);
@@ -330,6 +333,7 @@ public class Ecore2sqlTransformation {
         deletionList.add(_column);
       }
       EObject _targetElement_4 = c.getTargetElement();
+      Elem2Elem.elementsToCorr.remove(_targetElement_4);
       deletionList.add(_targetElement_4);
       deletionList.add(c);
     };
@@ -370,6 +374,7 @@ public class Ecore2sqlTransformation {
         }
       }
       EObject _sourceElement = c.getSourceElement();
+      Elem2Elem.elementsToCorr.remove(_sourceElement);
       deletionList.add(_sourceElement);
       deletionList.add(c);
     };

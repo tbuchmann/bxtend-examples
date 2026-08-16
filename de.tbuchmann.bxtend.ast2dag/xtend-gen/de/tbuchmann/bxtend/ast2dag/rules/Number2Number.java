@@ -73,11 +73,17 @@ public class Number2Number extends Elem2Elem {
    */
   @Override
   public void sourceToTarget() {
+    EObject _dagModelElem = this.getCorrModelElem((ast.Model) this.sourceModel.getContents().get(0)).getTargetElement();
+    final dag.Model dagModel = (dag.Model) _dagModelElem;
+    final java.util.Map<Integer, dag.Number> valueToTarget = new java.util.HashMap<>();
+    for (dag.Number num : Iterables.<dag.Number>filter(dagModel.getExprs(), dag.Number.class)) {
+      valueToTarget.put(Integer.valueOf(num.getValue()), num);
+    }
     final Procedure1<ast.Number> _function = (ast.Number n) -> {
       Corr _corrModelElem = this.getCorrModelElem(n);
       final MultiElem corr = ((MultiElem) _corrModelElem);
       if ((corr == null)) {
-        this.addToTargetElem(n);
+        this.addToTargetElem(n, valueToTarget);
       } else {
         EObject _targetElement = corr.getTargetElement();
         final dag.Number t = ((dag.Number) _targetElement);
@@ -86,7 +92,7 @@ public class Number2Number extends Elem2Elem {
         };
         boolean _forall = IterableExtensions.<EObject>forall(corr.getSourceElements(), _function_1);
         if (_forall) {
-          final dag.Number newTarget = this.findTargetElem(n);
+          final dag.Number newTarget = valueToTarget.get(Integer.valueOf(n.getValue()));
           if ((newTarget != null)) {
             Corr _corrModelElem_1 = this.getCorrModelElem(newTarget);
             EList<EObject> _sourceElements = ((MultiElem) _corrModelElem_1).getSourceElements();
@@ -101,7 +107,7 @@ public class Number2Number extends Elem2Elem {
         if (_notEquals) {
           EList<EObject> _sourceElements_1 = corr.getSourceElements();
           _sourceElements_1.remove(n);
-          this.addToTargetElem(n);
+          this.addToTargetElem(n, valueToTarget);
         }
       }
     };
@@ -188,10 +194,10 @@ public class Number2Number extends Elem2Elem {
    * 
    * @param e the AST number to map into the DAG
    */
-  private Corr addToTargetElem(final ast.Number e) {
+  private Corr addToTargetElem(final ast.Number e, final java.util.Map<Integer, dag.Number> valueToTarget) {
     Corr _xblockexpression = null;
     {
-      dag.Number newTarget = this.findTargetElem(e);
+      dag.Number newTarget = valueToTarget.get(Integer.valueOf(e.getValue()));
       if ((newTarget == null)) {
         EObject _createTargetElement = this.createTargetElement(DagPackage.eINSTANCE.getNumber());
         newTarget = ((dag.Number) _createTargetElement);
@@ -204,24 +210,8 @@ public class Number2Number extends Elem2Elem {
       EObject _targetElement = this.getCorrModelElem(e.getModel()).getTargetElement();
       newTarget.setModel(((dag.Model) _targetElement));
       _xblockexpression = this.put(Elem2Elem.elementsToCorr, newCorr);
+      valueToTarget.put(Integer.valueOf(e.getValue()), newTarget);
     }
     return _xblockexpression;
-  }
-
-  /**
-   * Searches the DAG model's flat expression list for an existing {@code dag.Number}
-   * whose {@code value} matches that of the given AST number.
-   * 
-   * @param e the AST number whose value is used as the search key
-   * @return the matching {@code dag.Number}, or {@code null} if none exists
-   */
-  private dag.Number findTargetElem(final ast.Number e) {
-    EObject _targetElement = this.getCorrModelElem(e.getModel()).getTargetElement();
-    final Function1<dag.Number, Boolean> _function = (dag.Number it) -> {
-      int _value = it.getValue();
-      int _value_1 = e.getValue();
-      return Boolean.valueOf((_value == _value_1));
-    };
-    return IterableExtensions.<dag.Number>findFirst(Iterables.<dag.Number>filter(((dag.Model) _targetElement).getExprs(), dag.Number.class), _function);
   }
 }

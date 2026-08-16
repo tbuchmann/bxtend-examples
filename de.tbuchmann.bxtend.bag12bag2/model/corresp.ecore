@@ -13,7 +13,7 @@
   </eClassifiers>
   <eClassifiers xsi:type="ecore:EClass" name="MultiElem" eSuperTypes="#//Corr">
     <eStructuralFeatures xsi:type="ecore:EReference" name="sourceElements" upperBound="-1"
-        eType="ecore:EClass http://www.eclipse.org/emf/2002/Ecore#//EObject"/>
+        unique="false" eType="ecore:EClass http://www.eclipse.org/emf/2002/Ecore#//EObject"/>
   </eClassifiers>
   <eClassifiers xsi:type="ecore:EClass" name="BasicElem" eSuperTypes="#//Corr"/>
 </ecore:EPackage>

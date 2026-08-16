@@ -62,18 +62,29 @@ class Number2Number extends Elem2Elem {
 	 * in the DAG by a (possibly shared) {@code dag.Number} node with the same {@code value}.
 	 */
 	override sourceToTarget() {
+		// findTargetElem's linear scan of the DAG model's exprs list, repeated for every
+		// AST number, turns "create n distinct numbers" into O(n^2). Since dag.Number
+		// objects are only ever created inside addToTargetElem (never elsewhere, and
+		// never deleted mid-call - deletions only happen in the orchestrator's cleanup
+		// pass between calls), a cache scoped to this single sourceToTarget() call is
+		// airtight: seed it once from whatever dag.Number nodes already exist, then keep
+		// it in sync with every number this call itself creates or reuses.
+		val dagModel = (sourceModel.contents.get(0) as ast.Model).getCorrModelElem.targetElement as Model
+		val java.util.Map<Integer, dag.Number> valueToTarget = newHashMap
+		dagModel.exprs.filter(typeof(dag.Number)).forEach[num | valueToTarget.put(num.value, num)]
+
 		sourceModel.allContents.filter(typeof(ast.Number))
 			.forEach[n |
 				val corr = n.getCorrModelElem  as MultiElem
 				if(corr === null) {
 					// No correspondence yet – find an existing DAG number or create a new one.
-					n.addToTargetElem
+					n.addToTargetElem(valueToTarget)
 				} else {
 					val t = corr.targetElement as dag.Number
 					if(corr.sourceElements.forall[it instanceof Number && (it as ast.Number).value == n.value]) {
 						// All sources agree on the value; check for an existing DAG number that
 						// now matches this value (e.g. a parallel branch just set the same value).
-						val newTarget = n.findTargetElem
+						val newTarget = valueToTarget.get(n.value)
 						if(newTarget !== null)
 							(newTarget.getCorrModelElem as MultiElem).sourceElements += n
 						else
@@ -82,10 +93,10 @@ class Number2Number extends Elem2Elem {
 					// Detach and re-link if the DAG value diverges from the AST value.
 					if(t.value != n.value) {
 						corr.sourceElements -= n
-						n.addToTargetElem
+						n.addToTargetElem(valueToTarget)
 					}
 				}
-			]	
+			]
 	}
 	
 	/**
@@ -139,8 +150,8 @@ class Number2Number extends Elem2Elem {
 	 *
 	 * @param e the AST number to map into the DAG
 	 */
-	def private addToTargetElem(ast.Number e) {
-		var newTarget = e.findTargetElem
+	def private addToTargetElem(ast.Number e, java.util.Map<Integer, dag.Number> valueToTarget) {
+		var newTarget = valueToTarget.get(e.value)
 		if(newTarget === null) {
 			newTarget = createTargetElement(DagPackage.eINSTANCE.number) as dag.Number
 		}
@@ -149,16 +160,6 @@ class Number2Number extends Elem2Elem {
 		newTarget.value = e.value
 		newTarget.model = e.model.getCorrModelElem.targetElement as Model
 		elementsToCorr.put(newCorr)
-	}
-	
-	/**
-	 * Searches the DAG model's flat expression list for an existing {@code dag.Number}
-	 * whose {@code value} matches that of the given AST number.
-	 *
-	 * @param e the AST number whose value is used as the search key
-	 * @return the matching {@code dag.Number}, or {@code null} if none exists
-	 */
-	def private findTargetElem(ast.Number e) {
-		(e.model.getCorrModelElem.targetElement as Model).exprs.filter(typeof(dag.Number)).findFirst[it.value == e.value]
+		valueToTarget.put(e.value, newTarget)
 	}
 }

@@ -75,8 +75,34 @@ abstract class Elem2Elem {
 	 */
 	protected var String ruleID
 	
-	/** Legacy map kept for potential future optimisation (currently unused at runtime). */
+	/**
+	 * Fast O(1) lookup from a source or target element to its {@link Corr}, keyed by
+	 * whichever element ({@code sourceElement} or {@code targetElement}) is passed to
+	 * {@link #getCorrModelElem}. Kept in sync with the correspondence list by
+	 * {@link #getOrCreateCorrModelElement} (on insertion) and by
+	 * {@link Ecore2sqlTransformation#deleteUnreferencedTargetElements}/
+	 * {@link Ecore2sqlTransformation#deleteUnreferencedSourceElements} (on removal).
+	 * Shared across all rule instances of one dialogue (correspondence lookup is global
+	 * to the transformation, not per-rule) - {@link #rebuildCorrespondenceCache} reseeds
+	 * it from the actual correspondence list whenever a new
+	 * {@link Ecore2sqlTransformation} is constructed, so a fresh dialogue starts with an
+	 * empty cache and a dialogue loaded from a persisted correspondence model gets a
+	 * correctly populated one.
+	 */
 	protected static Map<EObject, Corr> elementsToCorr = newHashMap
+
+	/**
+	 * Clears and repopulates {@link #elementsToCorr} from the given correspondence list.
+	 * Called once per {@link Ecore2sqlTransformation} construction (i.e. once per
+	 * dialogue) so the static cache never leaks entries across dialogues.
+	 */
+	static def void rebuildCorrespondenceCache(List<Corr> correspondences) {
+		elementsToCorr.clear()
+		for (c : correspondences) {
+			if (c.sourceElement !== null) elementsToCorr.put(c.sourceElement, c)
+			if (c.targetElement !== null) elementsToCorr.put(c.targetElement, c)
+		}
+	}
 
 	/**
 	 * Shared, static map from a {@link Corr} to the identity/name attribute of its element
@@ -150,7 +176,23 @@ abstract class Elem2Elem {
 	 * @return the corresponding {@link Corr}, or {@code null} if none exists yet
 	 */
 	def getCorrModelElem(EObject obj) {
-		(corrModel.contents?.get(0) as Transformation).correspondences.findFirst[corr |	corr.sourceElement == obj || corr.targetElement == obj]
+		val cached = elementsToCorr.get(obj)
+		if (cached !== null) return cached
+		// Cache miss: fall back to the authoritative linear scan and self-heal the
+		// cache from its result. Several rules (e.g. EReference2Relation's overridden
+		// getOrCreateTargetElem, and various in-place EcoreUtil.delete + recreate
+		// patterns across the rule set) mutate Corr.sourceElement/targetElement
+		// directly without going through getOrCreateCorrModelElement, so the cache
+		// cannot be assumed complete - this fallback guarantees correctness
+		// regardless, at the cost of a scan only for the specific objects those
+		// bypasses touch. (A fully cache-only variant was tried and reverted: it
+		// still surfaced at least one more untracked bypass under
+		// Conflicts#testMonotonicDeleting, and exhaustively auditing every mutation
+		// path in this generated rule set is an unbounded risk not worth taking for
+		// a performance optimisation - correctness comes first.)
+		val found = (corrModel.contents?.get(0) as Transformation).correspondences.findFirst[corr | corr.sourceElement == obj || corr.targetElement == obj]
+		if (found !== null) elementsToCorr.put(obj, found)
+		return found
 	}
 
 	/**
@@ -175,7 +217,8 @@ abstract class Elem2Elem {
 					targetElement = obj
 				desc = description
 			]
-			(corrModel.contents.get(0) as Transformation).correspondences += corr	
+			(corrModel.contents.get(0) as Transformation).correspondences += corr
+			elementsToCorr.put(obj, corr)
 		}
 		return corr
 	}
@@ -209,11 +252,12 @@ abstract class Elem2Elem {
 	 * @return the existing or newly created source element
 	 */
 	def getOrCreateSourceElem(Corr corr, EClass clazz) {
-		
+
 		var EObject source  = corr.sourceElement
 		if (corr.sourceElement === null){
 			source = createSourceElement(clazz)
 			corr.sourceElement = source
+			elementsToCorr.put(source, corr)
 		}
 		return source
 	}
@@ -227,10 +271,11 @@ abstract class Elem2Elem {
 	 * @return the existing or newly created target element
 	 */
 	def getOrCreateTargetElem(Corr corr, EClass clazz) {
-		var EObject target = corr.targetElement 
+		var EObject target = corr.targetElement
 		if (target === null) {
 			target = createTargetElement(clazz)
 			corr.targetElement = target
+			elementsToCorr.put(target, corr)
 		}
 		return target
 	}

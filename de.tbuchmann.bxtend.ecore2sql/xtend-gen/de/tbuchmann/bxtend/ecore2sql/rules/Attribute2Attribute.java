@@ -2,6 +2,7 @@ package de.tbuchmann.bxtend.ecore2sql.rules;
 
 import com.google.common.collect.Iterators;
 import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Corr;
+import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Transformation;
 import java.util.Arrays;
 import java.util.Objects;
 import org.eclipse.emf.common.util.EList;
@@ -102,8 +103,17 @@ public class Attribute2Attribute extends Class2Table {
    */
   @Override
   public void sourceToTarget() {
+    EObject _transformationElem = this.corrModel.getContents().get(0);
+    final Transformation transformation = (Transformation) _transformationElem;
+    final java.util.Map<EObject, Corr> existingCorrByObj = new java.util.HashMap<>();
+    for (Corr c0 : transformation.getCorrespondences()) {
+      if (c0.getSourceElement() != null) {
+        existingCorrByObj.put(c0.getSourceElement(), c0);
+      }
+    }
     final Procedure1<EAttribute> _function = (EAttribute att) -> {
-      final Corr corr = this.getOrCreateCorrModelElement(att, this.ruleID);
+      Corr fromSnapshot = existingCorrByObj.get(att);
+      final Corr corr = fromSnapshot != null ? fromSnapshot : this.createCorrModelElementDirect(att, this.ruleID);
       int _upperBound = att.getUpperBound();
       boolean _equals = (_upperBound == 1);
       if (_equals) {
@@ -173,6 +183,14 @@ public class Attribute2Attribute extends Class2Table {
    */
   @Override
   public void targetToSource() {
+    EObject _transformationElem3 = this.corrModel.getContents().get(0);
+    final Transformation transformation3 = (Transformation) _transformationElem3;
+    final java.util.Map<EObject, Corr> existingCorrByTarget = new java.util.HashMap<>();
+    for (Corr c2 : transformation3.getCorrespondences()) {
+      if (c2.getTargetElement() != null) {
+        existingCorrByTarget.put(c2.getTargetElement(), c2);
+      }
+    }
     final Function1<Column, Boolean> _function = (Column it) -> {
       final Function1<Annotation, Boolean> _function_1 = (Annotation it_1) -> {
         String _annotation = it_1.getAnnotation();
@@ -181,7 +199,8 @@ public class Attribute2Attribute extends Class2Table {
       return Boolean.valueOf(IterableExtensions.<Annotation>exists(it.getOwnedAnnotations(), _function_1));
     };
     final Procedure1<Column> _function_1 = (Column col) -> {
-      final Corr corr = this.getOrCreateCorrModelElement(col, this.ruleID);
+      Corr fromSnapshot1 = existingCorrByTarget.get(col);
+      final Corr corr = fromSnapshot1 != null ? fromSnapshot1 : this.createCorrModelElementDirect(col, this.ruleID);
       if (((corr.getSourceElement() != null) && (!(corr.getSourceElement() instanceof EAttribute)))) {
         EcoreUtil.delete(corr.getSourceElement(), true);
       }
@@ -206,7 +225,8 @@ public class Attribute2Attribute extends Class2Table {
       }))));
     };
     final Procedure1<Table> _function_3 = (Table tab) -> {
-      final Corr corr = this.getOrCreateCorrModelElement(tab, this.ruleID);
+      Corr fromSnapshot2 = existingCorrByTarget.get(tab);
+      final Corr corr = fromSnapshot2 != null ? fromSnapshot2 : this.createCorrModelElementDirect(tab, this.ruleID);
       if (((corr.getSourceElement() != null) && (!(corr.getSourceElement() instanceof EAttribute)))) {
         EcoreUtil.delete(corr.getSourceElement(), true);
       }

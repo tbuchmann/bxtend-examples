@@ -86,17 +86,30 @@ class Element2Element extends Elem2Elem {
 	 * is updated to reflect the actual size of the source-element group.</p>
 	 */
 	override sourceToTarget() {
-		sourceModel.allContents.filter(typeof(Element)).forEach[e | 
+		// forall[it.value == e.value] over corr.sourceElements is, for any e that is
+		// currently a member of that list, exactly equivalent to "this group has only
+		// one distinct value" - independent of which member e happens to be. Scanning
+		// it fresh for every element (as the naive per-element check would) costs
+		// O(group size) per element, i.e. O(n^2) for a single fully-grouped batch of n
+		// elements. Instead compute it once per group and reuse it for every member of
+		// that group, invalidating the cached answer only when membership actually
+		// changes (a regroup below removes an element from its old group).
+		val homogeneousCache = newHashMap
+		sourceModel.allContents.filter(typeof(Element)).forEach[e |
 			val corr = e.getCorrModelElem  as MultiElem
 			if(corr === null) {
 				e.addToTargetElem
 			} else {
 				val t = corr.targetElement as bags2.Element
-				if(corr.sourceElements.forall[it instanceof Element && (it as Element).value == e.value]) {
+				val homogeneous = homogeneousCache.computeIfAbsent(corr) [
+					corr.sourceElements.map[(it as Element).value].toSet.size == 1
+				]
+				if(homogeneous) {
 					t.value = e.value
 				}
 				if(t.value != e.value) {
 					corr.sourceElements -= e
+					homogeneousCache.remove(corr)
 					e.addToTargetElem
 				}
 			}
@@ -174,7 +187,15 @@ class Element2Element extends Elem2Elem {
 	 *       resolved independently against last-known snapshots ({@link #corrToName} /
 	 *       {@link #corrToMultiplicity}): each is pushed forward if it changed on the
 	 *       source, pulled backward if it only changed on the target, and left as-is
-	 *       (source wins) if both changed since the last synchronisation.</li>
+	 *       (source wins) if both changed since the last synchronisation. <b>Exception:</b>
+	 *       if the group lost members since the last sync (a deletion) while its value was
+	 *       independently renamed on the target, that is treated as a single conflict over
+	 *       the whole group rather than two unrelated attribute changes — the rename is
+	 *       rejected and the reduced count is kept (source wins both axes), instead of
+	 *       pulling the rename and pushing the new count independently, which would produce
+	 *       a hybrid state neither side asked for. A group that instead <em>grew</em> (e.g.
+	 *       by absorbing an element that regrouped into it in the pass above) is not this
+	 *       case and keeps the normal independent per-axis resolution.</li>
 	 *   <li><b>Absorb target-only insertions:</b> any Bag2 {@code Element} that still has
 	 *       no correspondence at all is pulled backward into a freshly created Bag1 group,
 	 *       mirroring {@link #targetToSource()}.</li>
@@ -208,13 +229,23 @@ class Element2Element extends Elem2Elem {
 			val t = corr.targetElement as bags2.Element
 			val groupValue = (corr.sourceElements.head as Element).value
 			val lastValue = corrToName.get(corr)
+			val lastMultiplicity = corrToMultiplicity.get(corr)
+			// A group that lost members since the last sync (a deletion) while its value was
+			// independently renamed on the target is a single conflict over the whole group,
+			// not two unrelated attribute changes - resolve both axes together (source wins),
+			// rather than pulling the rename and pushing the reduced count independently, which
+			// would produce a hybrid state neither side actually asked for. A group that instead
+			// grew (e.g. by absorbing a regrouped element) is not this case and keeps the normal
+			// independent per-axis resolution below.
+			val shrunk = lastMultiplicity !== null && corr.sourceElements.size < lastMultiplicity
 			if (lastValue === null || groupValue != lastValue)
 				t.value = groupValue
-			else if (t.value != lastValue)
+			else if (t.value != lastValue && !shrunk)
 				corr.sourceElements.forEach[(it as Element).value = t.value]
+			else if (t.value != lastValue && shrunk)
+				t.value = groupValue
 			corrToName.put(corr, t.value)
 
-			val lastMultiplicity = corrToMultiplicity.get(corr)
 			val sourceChanged = lastMultiplicity === null || lastMultiplicity != corr.sourceElements.size
 			val targetChanged = lastMultiplicity === null || lastMultiplicity != t.multiplicity
 			if (sourceChanged) {

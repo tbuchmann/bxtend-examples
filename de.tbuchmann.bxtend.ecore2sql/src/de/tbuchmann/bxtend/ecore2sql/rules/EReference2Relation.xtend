@@ -180,8 +180,14 @@ class EReference2Relation extends Class2Table {
 					// check is necessary to prevent double creation of the reference table
 					if (sourceName.compareTo(oppositeName) < 0) {
 						if(eref.EOpposite.corrModelElem !== null) {
-							corr.targetElement = eref.EOpposite.corrModelElem.targetElement
-							EcoreUtil.delete(eref.EOpposite.corrModelElem, true)
+							val oldCorr = eref.EOpposite.corrModelElem
+							corr.targetElement = oldCorr.targetElement
+							// oldCorr's target is now owned by corr instead - repoint the cache entry
+							// (a stale-but-present entry here would NOT self-heal via getCorrModelElem's
+							// miss-only fallback, unlike a merely-missing one).
+							if (corr.targetElement !== null) elementsToCorr.put(corr.targetElement, corr)
+							elementsToCorr.remove(eref.EOpposite)
+							EcoreUtil.delete(oldCorr, true)
 						}
 						val refTargetName = sourceName + "_inverse_" + oppositeName
 						val tbl = corr.getOrCreateTargetElem(targetPackage.table) as Table
@@ -211,6 +217,7 @@ class EReference2Relation extends Class2Table {
 						tbl.addAnnotations(annotations)	
 					} else {
 						// The opposite end creates the table; delete our redundant correspondence
+						elementsToCorr.remove(eref)
 						EcoreUtil.delete(corr, true)
 					}
 						
@@ -406,13 +413,16 @@ class EReference2Relation extends Class2Table {
 		if (clazz == targetPackage.column) {			
 			// check, if targetElement exists and is of the same type, if not, delete it and create a new column instead			
 			if (target !== null && !(target instanceof Column)) {
+				elementsToCorr.remove(target)
 				EcoreUtil.delete(target, true)
 				target = owningTable.createForeignKeyAttr(targetName, refTable)
-				corr.targetElement = target				
+				corr.targetElement = target
+				elementsToCorr.put(target, corr)
 			}
 			else if (target === null) {
 				target = owningTable.createForeignKeyAttr(targetName, refTable)
-				corr.targetElement = target			
+				corr.targetElement = target
+				elementsToCorr.put(target, corr)
 			} else {
 				// update existing column in-place
 				(target as Column).name = targetName;
@@ -422,15 +432,18 @@ class EReference2Relation extends Class2Table {
 		}
 		else if (clazz == targetPackage.table) {
 			if (target !== null && !(target instanceof Table)) {
+				elementsToCorr.remove(target)
 				EcoreUtil.delete(target, true)
-				target = targetFactory.createTable								
+				target = targetFactory.createTable
 				corr.targetElement = target
+				elementsToCorr.put(target, corr)
 			}
 			else if (target === null) {
 				target = targetFactory.createTable
 				corr.targetElement = target
+				elementsToCorr.put(target, corr)
 			}
-		}	
+		}
 		
 		return target
 	}

@@ -99,11 +99,20 @@ public class Operator2Operator extends Elem2Elem {
    */
   @Override
   public void sourceToTarget() {
+    EObject _dagModelElem = this.getCorrModelElem((Model) this.sourceModel.getContents().get(0)).getTargetElement();
+    final dag.Model dagModel = (dag.Model) _dagModelElem;
+    final java.util.Map<Object, dag.Operator> signatureToTarget = new java.util.HashMap<>();
+    for (dag.Operator dop : Iterables.<dag.Operator>filter(dagModel.getExprs(), dag.Operator.class)) {
+      MultiElem c = (MultiElem) this.getCorrModelElem(dop);
+      if (c != null && !c.getSourceElements().isEmpty()) {
+        signatureToTarget.put(this.signature((Operator) c.getSourceElements().get(0)), dop);
+      }
+    }
     final Procedure1<Operator> _function = (Operator op) -> {
       Corr _corrModelElem = this.getCorrModelElem(op);
       final MultiElem corr = ((MultiElem) _corrModelElem);
       if ((corr == null)) {
-        this.addToTargetElem(op);
+        this.addToTargetElem(op, signatureToTarget);
       } else {
         EObject _targetElement = corr.getTargetElement();
         final dag.Operator targetOp = ((dag.Operator) _targetElement);
@@ -114,10 +123,10 @@ public class Operator2Operator extends Elem2Elem {
         if (_forall) {
           targetOp.setOp(this.getConformOperator(op.getOp()));
         }
-        if ((((!this.conformsTo(op.getOp(), targetOp.getOp())) || (!this.equalsToWithChilds(op, ((Operator) corr.getSourceElements().get(0))))) || (!Objects.equals(targetOp, this.findTargetElem(op))))) {
+        if ((((!this.conformsTo(op.getOp(), targetOp.getOp())) || (!this.equalsToWithChilds(op, ((Operator) corr.getSourceElements().get(0))))) || (!Objects.equals(targetOp, this.findTargetElem(op, signatureToTarget))))) {
           EList<EObject> _sourceElements = corr.getSourceElements();
           _sourceElements.remove(op);
-          this.addToTargetElem(op);
+          this.addToTargetElem(op, signatureToTarget);
         }
       }
     };
@@ -337,10 +346,10 @@ public class Operator2Operator extends Elem2Elem {
    * 
    * @param o the AST operator to map into the DAG
    */
-  private Corr addToTargetElem(final Operator o) {
+  private Corr addToTargetElem(final Operator o, final java.util.Map<Object, dag.Operator> signatureToTarget) {
     Corr _xblockexpression = null;
     {
-      dag.Operator newTarget = this.findTargetElem(o);
+      dag.Operator newTarget = this.findTargetElem(o, signatureToTarget);
       if ((newTarget == null)) {
         EObject _createTargetElement = this.createTargetElement(
           DagPackage.eINSTANCE.getOperator());
@@ -354,29 +363,63 @@ public class Operator2Operator extends Elem2Elem {
       EObject _get = this.targetModel.getContents().get(0);
       newTarget.setModel(((dag.Model) _get));
       _xblockexpression = this.put(Elem2Elem.elementsToCorr, newCorr);
+      signatureToTarget.put(this.signature(o), newTarget);
     }
     return _xblockexpression;
   }
 
   /**
-   * Searches the DAG model's flat expression list for a {@code dag.Operator} whose first
-   * registered source element is structurally equal to {@code o}.
-   * 
-   * <p>A DAG operator is considered a match only when its correspondence entry already has
-   * at least one source element (i.e. it was produced by a previous forward pass and its
-   * subtree identity is therefore known).
-   * 
+   * Looks up a {@code dag.Operator} whose first registered source element is structurally
+   * equal to {@code o}, via the per-call {@code signatureToTarget} cache. Re-verifies the
+   * candidate is still live (non-orphaned) and structurally equal before trusting it, exactly
+   * mirroring the original linear-scan's own guard and comparison.
+   *
    * @param o the AST operator used as the structural search key
    * @return the matching {@code dag.Operator}, or {@code null} if none exists
    */
-  private dag.Operator findTargetElem(final Operator o) {
-    EObject _targetElement = this.getCorrModelElem(o.getModel()).getTargetElement();
-    final Function1<dag.Operator, Boolean> _function = (dag.Operator op) -> {
-      return Boolean.valueOf(((!((MultiElem) this.getCorrModelElem(op)).getSourceElements().isEmpty()) && 
-        this.equalsToWithChilds(((Operator) ((MultiElem) this.getCorrModelElem(op)).getSourceElements().get(0)), o)));
-    };
-    return IterableExtensions.<dag.Operator>findFirst(Iterables.<dag.Operator>filter(((dag.Model) _targetElement).getExprs(), 
-      dag.Operator.class), _function);
+  private dag.Operator findTargetElem(final Operator o, final java.util.Map<Object, dag.Operator> signatureToTarget) {
+    dag.Operator candidate = signatureToTarget.get(this.signature(o));
+    if (candidate != null) {
+      MultiElem candidateCorr = (MultiElem) this.getCorrModelElem(candidate);
+      if (!candidateCorr.getSourceElements().isEmpty()
+          && this.equalsToWithChilds(((Operator) candidateCorr.getSourceElements().get(0)), o)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Injective structural signature of an AST expression subtree, matching
+   * {@link #equalsToWithChilds}'s recursive definition exactly: two subtrees are structurally
+   * equal iff their signatures are {@code equal()}. Using a nested {@link java.util.List}
+   * means Java's own structural {@code equals}/{@code hashCode} do the recursive comparison,
+   * so this can be used directly as a {@code HashMap} key.
+   */
+  private Object _signature(final ast.Number n) {
+    return java.util.Arrays.asList("N", Integer.valueOf(n.getValue()));
+  }
+
+  private Object _signature(final Variable v) {
+    return java.util.Arrays.asList("V", v.getName());
+  }
+
+  private Object _signature(final Operator o) {
+    return java.util.Arrays.asList("O", o.getOp(), this.signature(o.getLeft()), this.signature(o.getRight()));
+  }
+
+  @XbaseGenerated
+  private Object signature(final ast.Expression e) {
+    if (e instanceof ast.Number) {
+      return _signature((ast.Number) e);
+    } else if (e instanceof Variable) {
+      return _signature((Variable) e);
+    } else if (e instanceof Operator) {
+      return _signature((Operator) e);
+    } else {
+      throw new IllegalArgumentException("Unhandled parameter types: " +
+        Arrays.<Object>asList(e).toString());
+    }
   }
 
   /**

@@ -2,6 +2,7 @@ package de.tbuchmann.bxtend.ecore2sql.rules;
 
 import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Corr
 import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Ecore2sqlFactory
+import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Transformation
 import java.util.ArrayList
 import java.util.List
 import org.eclipse.emf.common.util.URI
@@ -109,11 +110,13 @@ class Ecore2sqlTransformation {
 		corrModel = set.getResource(correspondence, true)
 		
 		if (corrModel.contents.size == 0) {
-			corrModel.contents.add(Ecore2sqlFactory.eINSTANCE.createTransformation)	
+			corrModel.contents.add(Ecore2sqlFactory.eINSTANCE.createTransformation)
 		}
 
-		// TODO: add your rules in the proper order to the 'rules' List		
-		rules.add(new Package2Schema(sourceModel, targetModel, corrModel))	
+		Elem2Elem.rebuildCorrespondenceCache((corrModel.contents.get(0) as Transformation).correspondences)
+
+		// TODO: add your rules in the proper order to the 'rules' List
+		rules.add(new Package2Schema(sourceModel, targetModel, corrModel))
 		rules.add(new Class2Table(sourceModel, targetModel, corrModel))
 		rules.add(new Generalization2Relation(sourceModel, targetModel, corrModel))
 		rules.add(new Attribute2Attribute(sourceModel, targetModel, corrModel))
@@ -135,9 +138,11 @@ class Ecore2sqlTransformation {
 		corrModel = correspondence
 		
 		if (corrModel.contents.size == 0) {
-			corrModel.contents.add(Ecore2sqlFactory.eINSTANCE.createTransformation)	
+			corrModel.contents.add(Ecore2sqlFactory.eINSTANCE.createTransformation)
 		}
-		
+
+		Elem2Elem.rebuildCorrespondenceCache((corrModel.contents.get(0) as Transformation).correspondences)
+
 		// TODO: add your rules in the proper order to the 'rules' List
 		rules.add(new Package2Schema(sourceModel, targetModel, corrModel))
 		rules.add(new Class2Table(sourceModel, targetModel, corrModel))
@@ -145,7 +150,7 @@ class Ecore2sqlTransformation {
 		rules.add(new Attribute2Attribute(sourceModel, targetModel, corrModel))
 		rules.add(new EReference2Relation(sourceModel, targetModel, corrModel))
 	}
-	
+
 	/**
 	 * Propagates changes from the Ecore source model to the SQL target model.
 	 *
@@ -277,8 +282,9 @@ class Ecore2sqlTransformation {
 				deletionList += tab.referencingForeignKeys
 				deletionList += tab.referencingForeignKeys.findFirst[owningTable == eot]?.column
 			}
-			// TODO: add handling of contained and referenced Elements here if appropriate			
+			// TODO: add handling of contained and referenced Elements here if appropriate
 			// end
+			Elem2Elem.elementsToCorr.remove(c.targetElement)
 			deletionList += c.targetElement
 			deletionList += c
 		]
@@ -307,8 +313,9 @@ class Ecore2sqlTransformation {
 				}
 			}
 			// TODO: add handling of contained and referenced Elements here if appropriate
-			
+
 			// end
+			Elem2Elem.elementsToCorr.remove(c.sourceElement)
 			deletionList += c.sourceElement
 			deletionList += c
 		]

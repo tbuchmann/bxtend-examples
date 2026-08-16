@@ -99,6 +99,15 @@ public class Element2Element extends Elem2Elem {
    */
   @Override
   public void sourceToTarget() {
+    // forall[it.value == e.value] over corr.sourceElements is, for any e that is
+    // currently a member of that list, exactly equivalent to "this group has only
+    // one distinct value" - independent of which member e happens to be. Scanning
+    // it fresh for every element costs O(group size) per element, i.e. O(n^2) for
+    // a single fully-grouped batch of n elements. Instead compute it once per
+    // group and reuse it for every member of that group, invalidating the cached
+    // answer only when membership actually changes (a regroup below removes an
+    // element from its old group).
+    final java.util.Map<MultiElem, Boolean> homogeneousCache = new java.util.HashMap<>();
     final Procedure1<Element> _function = (Element e) -> {
       Corr _corrModelElem = this.getCorrModelElem(e);
       final MultiElem corr = ((MultiElem) _corrModelElem);
@@ -107,11 +116,14 @@ public class Element2Element extends Elem2Elem {
       } else {
         EObject _targetElement = corr.getTargetElement();
         final bags2.Element t = ((bags2.Element) _targetElement);
-        final Function1<EObject, Boolean> _function_1 = (EObject it) -> {
-          return Boolean.valueOf(((it instanceof Element) && Objects.equals(((Element) it).getValue(), e.getValue())));
-        };
-        boolean _forall = IterableExtensions.<EObject>forall(corr.getSourceElements(), _function_1);
-        if (_forall) {
+        boolean homogeneous = homogeneousCache.computeIfAbsent(corr, (MultiElem c) -> {
+          java.util.Set<String> distinctValues = new java.util.HashSet<>();
+          for (EObject it : c.getSourceElements()) {
+            distinctValues.add(((Element) it).getValue());
+          }
+          return distinctValues.size() == 1;
+        });
+        if (homogeneous) {
           t.setValue(e.getValue());
         }
         String _value = t.getValue();
@@ -120,6 +132,7 @@ public class Element2Element extends Elem2Elem {
         if (_notEquals) {
           EList<EObject> _sourceElements = corr.getSourceElements();
           _sourceElements.remove(e);
+          homogeneousCache.remove(corr);
           this.addToTargetElem(e);
         }
       }
@@ -209,7 +222,15 @@ public class Element2Element extends Elem2Elem {
    *       resolved independently against last-known snapshots ({@link #corrToName} /
    *       {@link #corrToMultiplicity}): each is pushed forward if it changed on the
    *       source, pulled backward if it only changed on the target, and left as-is
-   *       (source wins) if both changed since the last synchronisation.</li>
+   *       (source wins) if both changed since the last synchronisation. <b>Exception:</b>
+   *       if the group lost members since the last sync (a deletion) while its value was
+   *       independently renamed on the target, that is treated as a single conflict over
+   *       the whole group rather than two unrelated attribute changes — the rename is
+   *       rejected and the reduced count is kept (source wins both axes), instead of
+   *       pulling the rename and pushing the new count independently, which would produce
+   *       a hybrid state neither side asked for. A group that instead <em>grew</em> (e.g.
+   *       by absorbing an element that regrouped into it in the pass above) is not this
+   *       case and keeps the normal independent per-axis resolution.</li>
    *   <li><b>Absorb target-only insertions:</b> any Bag2 {@code Element} that still has
    *       no correspondence at all is pulled backward into a freshly created Bag1 group,
    *       mirroring {@link #targetToSource()}.</li>
@@ -254,20 +275,23 @@ public class Element2Element extends Elem2Elem {
       EObject _head = IterableExtensions.<EObject>head(corr.getSourceElements());
       final String groupValue = ((Element) _head).getValue();
       final String lastValue = Elem2Elem.corrToName.get(corr);
+      final Integer lastMultiplicity = Elem2Elem.corrToMultiplicity.get(corr);
+      final boolean shrunk = ((lastMultiplicity != null) && (corr.getSourceElements().size() < (lastMultiplicity).intValue()));
       if (((lastValue == null) || (!Objects.equals(groupValue, lastValue)))) {
         t.setValue(groupValue);
       } else {
-        String _value = t.getValue();
-        boolean _notEquals = (!Objects.equals(_value, lastValue));
-        if (_notEquals) {
+        if (((!Objects.equals(t.getValue(), lastValue)) && (!shrunk))) {
           final Consumer<EObject> _function_5 = (EObject it) -> {
             ((Element) it).setValue(t.getValue());
           };
           corr.getSourceElements().forEach(_function_5);
+        } else {
+          if (((!Objects.equals(t.getValue(), lastValue)) && shrunk)) {
+            t.setValue(groupValue);
+          }
         }
       }
       Elem2Elem.corrToName.put(corr, t.getValue());
-      final Integer lastMultiplicity = Elem2Elem.corrToMultiplicity.get(corr);
       final boolean sourceChanged = ((lastMultiplicity == null) || ((lastMultiplicity).intValue() != corr.getSourceElements().size()));
       final boolean targetChanged = ((lastMultiplicity == null) || ((lastMultiplicity).intValue() != t.getMultiplicity()));
       if (sourceChanged) {

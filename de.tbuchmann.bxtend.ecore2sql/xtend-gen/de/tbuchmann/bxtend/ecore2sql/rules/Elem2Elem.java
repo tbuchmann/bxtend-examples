@@ -109,9 +109,29 @@ public abstract class Elem2Elem {
   protected String ruleID;
 
   /**
-   * Legacy map kept for potential future optimisation (currently unused at runtime).
+   * Fast O(1) lookup from a source or target element to its {@link Corr}. Kept in sync
+   * by {@link #getOrCreateCorrModelElement} / {@link #getOrCreateSourceElem} /
+   * {@link #getOrCreateTargetElem} (on insertion) and by
+   * {@link Ecore2sqlTransformation}'s deletion cleanup (on removal).
+   * {@link #rebuildCorrespondenceCache} reseeds it once per dialogue.
    */
   protected static Map<EObject, Corr> elementsToCorr = CollectionLiterals.<EObject, Corr>newHashMap();
+
+  /**
+   * Clears and repopulates {@link #elementsToCorr} from the given correspondence list.
+   * Called once per {@link Ecore2sqlTransformation} construction (i.e. once per dialogue).
+   */
+  public static void rebuildCorrespondenceCache(final List<Corr> correspondences) {
+    elementsToCorr.clear();
+    for (final Corr c : correspondences) {
+      if (c.getSourceElement() != null) {
+        elementsToCorr.put(c.getSourceElement(), c);
+      }
+      if (c.getTargetElement() != null) {
+        elementsToCorr.put(c.getTargetElement(), c);
+      }
+    }
+  }
 
   /**
    * Shared, static map from a {@link Corr} to the identity/name attribute of its element
@@ -185,15 +205,25 @@ public abstract class Elem2Elem {
    * @return the corresponding {@link Corr}, or {@code null} if none exists yet
    */
   public Corr getCorrModelElem(final EObject obj) {
+    Corr cached = elementsToCorr.get(obj);
+    if (cached != null) {
+      return cached;
+    }
+    // Cache miss: fall back to the authoritative linear scan and self-heal the
+    // cache from its result (see Elem2Elem.xtend for the full rationale).
     EList<EObject> _contents = this.corrModel.getContents();
     EObject _get = null;
-    if (_contents!=null) {
-      _get=_contents.get(0);
+    if (_contents != null) {
+      _get = _contents.get(0);
     }
     final Function1<Corr, Boolean> _function = (Corr corr) -> {
       return Boolean.valueOf((Objects.equals(corr.getSourceElement(), obj) || Objects.equals(corr.getTargetElement(), obj)));
     };
-    return IterableExtensions.<Corr>findFirst(((Transformation) _get).getCorrespondences(), _function);
+    Corr found = IterableExtensions.<Corr>findFirst(((Transformation) _get).getCorrespondences(), _function);
+    if (found != null) {
+      elementsToCorr.put(obj, found);
+    }
+    return found;
   }
 
   /**
@@ -228,6 +258,7 @@ public abstract class Elem2Elem {
       EObject _get = this.corrModel.getContents().get(0);
       EList<Corr> _correspondences = ((Transformation) _get).getCorrespondences();
       _correspondences.add(corr);
+      elementsToCorr.put(obj, corr);
     }
     return corr;
   }
@@ -267,6 +298,7 @@ public abstract class Elem2Elem {
     if (_tripleEquals) {
       source = this.createSourceElement(clazz);
       corr.setSourceElement(source);
+      elementsToCorr.put(source, corr);
     }
     return source;
   }
@@ -284,6 +316,7 @@ public abstract class Elem2Elem {
     if ((target == null)) {
       target = this.createTargetElement(clazz);
       corr.setTargetElement(target);
+      elementsToCorr.put(target, corr);
     }
     return target;
   }

@@ -85,11 +85,29 @@ class Operator2Operator extends Elem2Elem {
 	 * then wires the DAG cross-references via {@link #setReferences}.
 	 */
 	override sourceToTarget() {
+		// findTargetElem's linear scan over every dag.Operator, each candidate compared via a
+		// recursive equalsToWithChilds, turns "create n structurally distinct operators" into
+		// something far worse than O(n^2) (a scan-with-recursive-comparison per element). Since
+		// equalsToWithChilds is a pure structural equality (same op, same left/right subtrees,
+		// recursively down to Number/Variable leaves), it can be replaced by a single
+		// injective structural "signature" per subtree (a nested List, whose equals/hashCode
+		// EMF/Java already computes structurally for us) and a plain map lookup. Scoped to this
+		// one sourceToTarget() call for the same reason as Number2Number's cache: dag.Operator
+		// objects are only ever created here, and never deleted mid-call.
+		val dagModel = (sourceModel.contents.get(0) as Model).getCorrModelElem.targetElement as dag.Model
+		val java.util.Map<Object, dag.Operator> signatureToTarget = newHashMap
+		dagModel.exprs.filter(typeof(dag.Operator)).forEach[op |
+			val c = op.getCorrModelElem as MultiElem
+			if (c !== null && !c.sourceElements.empty) {
+				signatureToTarget.put((c.sourceElements.get(0) as Operator).signature, op)
+			}
+		]
+
 		sourceModel.allContents.filter(typeof(Operator)).forEach [ op |
 			val corr = op.getCorrModelElem as MultiElem
 			if (corr === null) {
 				// No correspondence yet – find a structurally equal DAG operator or create a new one.
-				op.addToTargetElem
+				op.addToTargetElem(signatureToTarget)
 			} else {
 				val targetOp = corr.targetElement as dag.Operator
 				// If all sources agree on the operator type, propagate the type to the DAG side.
@@ -97,9 +115,9 @@ class Operator2Operator extends Elem2Elem {
 					targetOp.op = op.op.conformOperator
 				}
 				// If the type or subtree structure diverges, detach and re-map this AST operator.
-				if (!op.op.conformsTo(targetOp.op) || !op.equalsToWithChilds(corr.sourceElements.get(0) as Operator) || targetOp != op.findTargetElem) {
+				if (!op.op.conformsTo(targetOp.op) || !op.equalsToWithChilds(corr.sourceElements.get(0) as Operator) || targetOp != op.findTargetElem(signatureToTarget)) {
 					corr.sourceElements -= op
-					op.addToTargetElem
+					op.addToTargetElem(signatureToTarget)
 				}
 			}
 		]
@@ -257,8 +275,8 @@ class Operator2Operator extends Elem2Elem {
 	 *
 	 * @param o the AST operator to map into the DAG
 	 */
-	def private addToTargetElem(Operator o) {
-		var newTarget = o.findTargetElem
+	def private addToTargetElem(Operator o, java.util.Map<Object, dag.Operator> signatureToTarget) {
+		var newTarget = o.findTargetElem(signatureToTarget)
 		if (newTarget === null) {
 			newTarget = createTargetElement(
 				DagPackage.eINSTANCE.operator) as dag.Operator
@@ -268,25 +286,48 @@ class Operator2Operator extends Elem2Elem {
 		newTarget.op = o.op.getConformOperator
 		newTarget.model = targetModel.contents.get(0) as dag.Model
 		elementsToCorr.put(newCorr)
+		signatureToTarget.put(o.signature, newTarget)
 	}
 
 	/**
-	 * Searches the DAG model's flat expression list for a {@code dag.Operator} whose first
-	 * registered source element is structurally equal to {@code o}.
-	 *
-	 * <p>A DAG operator is considered a match only when its correspondence entry already has
-	 * at least one source element (i.e. it was produced by a previous forward pass and its
-	 * subtree identity is therefore known).
+	 * Looks up a {@code dag.Operator} whose first registered source element is structurally
+	 * equal to {@code o}, via the per-call {@code signatureToTarget} cache (keyed by
+	 * {@link #signature}, an injective encoding of {@link #equalsToWithChilds}). Re-verifies
+	 * the candidate is still live (non-orphaned) and structurally equal before trusting it,
+	 * exactly mirroring the original linear-scan's own guard and comparison.
 	 *
 	 * @param o the AST operator used as the structural search key
 	 * @return the matching {@code dag.Operator}, or {@code null} if none exists
 	 */
-	def private findTargetElem(Operator o) {
-		(o.model.getCorrModelElem.targetElement as dag.Model).exprs.filter(
-			typeof(dag.Operator)).findFirst [ op |
-				!((op.getCorrModelElem as MultiElem).sourceElements.empty) &&
-				((op.getCorrModelElem as MultiElem).sourceElements.get(0) as Operator).equalsToWithChilds(o)
-		]
+	def private findTargetElem(Operator o, java.util.Map<Object, dag.Operator> signatureToTarget) {
+		val candidate = signatureToTarget.get(o.signature)
+		if (candidate !== null) {
+			val candidateCorr = candidate.getCorrModelElem as MultiElem
+			if (!candidateCorr.sourceElements.empty
+					&& (candidateCorr.sourceElements.get(0) as Operator).equalsToWithChilds(o)) {
+				return candidate
+			}
+		}
+		null
+	}
+
+	/**
+	 * Injective structural signature of an AST expression subtree, matching
+	 * {@link #equalsToWithChilds}'s recursive definition exactly: two subtrees are
+	 * structurally equal iff their signatures are {@code equal()}. Using a nested
+	 * {@link java.util.List} means Java's own structural {@code equals}/{@code hashCode}
+	 * do the recursive comparison, so this can be used directly as a {@code HashMap} key.
+	 */
+	def private dispatch Object signature(Number n) {
+		#["N", n.value]
+	}
+
+	def private dispatch Object signature(Variable v) {
+		#["V", v.name]
+	}
+
+	def private dispatch Object signature(Operator o) {
+		#["O", o.op, o.left.signature, o.right.signature]
 	}
 	
 	/**

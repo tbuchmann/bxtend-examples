@@ -228,8 +228,16 @@ public class EReference2Relation extends Class2Table {
                 Corr _corrModelElem = this.getCorrModelElem(eref.getEOpposite());
                 boolean _tripleNotEquals = (_corrModelElem != null);
                 if (_tripleNotEquals) {
-                  corr.setTargetElement(this.getCorrModelElem(eref.getEOpposite()).getTargetElement());
-                  EcoreUtil.delete(this.getCorrModelElem(eref.getEOpposite()), true);
+                  Corr oldCorr = this.getCorrModelElem(eref.getEOpposite());
+                  corr.setTargetElement(oldCorr.getTargetElement());
+                  // oldCorr's target is now owned by corr instead - repoint the cache entry
+                  // (a stale-but-present entry here would NOT self-heal via getCorrModelElem's
+                  // miss-only fallback, unlike a merely-missing one).
+                  if (corr.getTargetElement() != null) {
+                    elementsToCorr.put(corr.getTargetElement(), corr);
+                  }
+                  elementsToCorr.remove(eref.getEOpposite());
+                  EcoreUtil.delete(oldCorr, true);
                 }
                 final String refTargetName = ((sourceName + "_inverse_") + oppositeName);
                 EObject _orCreateTargetElem_3 = this.getOrCreateTargetElem(corr, this.targetPackage.getTable());
@@ -299,6 +307,7 @@ public class EReference2Relation extends Class2Table {
                 }
                 this.addAnnotations(tbl_1, annotations);
               } else {
+                elementsToCorr.remove(eref);
                 EcoreUtil.delete(corr, true);
               }
             }
@@ -686,13 +695,16 @@ public class EReference2Relation extends Class2Table {
     boolean _equals = Objects.equals(clazz, _column);
     if (_equals) {
       if (((target != null) && (!(target instanceof Column)))) {
+        elementsToCorr.remove(target);
         EcoreUtil.delete(target, true);
         target = this.createForeignKeyAttr(this.owningTable, this.targetName, this.refTable);
         corr.setTargetElement(target);
+        elementsToCorr.put(target, corr);
       } else {
         if ((target == null)) {
           target = this.createForeignKeyAttr(this.owningTable, this.targetName, this.refTable);
           corr.setTargetElement(target);
+          elementsToCorr.put(target, corr);
         } else {
           ((Column) target).setName(this.targetName);
           ((Column) target).setType("int");
@@ -705,13 +717,16 @@ public class EReference2Relation extends Class2Table {
       boolean _equals_1 = Objects.equals(clazz, _table);
       if (_equals_1) {
         if (((target != null) && (!(target instanceof Table)))) {
+          elementsToCorr.remove(target);
           EcoreUtil.delete(target, true);
           target = this.targetFactory.createTable();
           corr.setTargetElement(target);
+          elementsToCorr.put(target, corr);
         } else {
           if ((target == null)) {
             target = this.targetFactory.createTable();
             corr.setTargetElement(target);
+            elementsToCorr.put(target, corr);
           }
         }
       }

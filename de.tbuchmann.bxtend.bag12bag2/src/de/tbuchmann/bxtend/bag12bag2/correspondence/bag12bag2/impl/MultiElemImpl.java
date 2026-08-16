@@ -65,9 +65,33 @@ public class MultiElemImpl extends CorrImpl implements MultiElem {
 	@Override
 	public EList<EObject> getSourceElements() {
 		if (sourceElements == null) {
-			sourceElements = new EObjectResolvingEList<EObject>(EObject.class, this, Bag12bag2Package.MULTI_ELEM__SOURCE_ELEMENTS);
+			// A source Element only ever belongs to one MultiElem group by construction
+			// (Element2Element.addToTargetElem removes it from its old group before adding
+			// it to a new one), so the uniqueness check EObjectResolvingEList performs on
+			// every add() (an O(n) contains() scan against the whole list) is redundant here
+			// and turns bulk group growth into O(n^2). NonUniqueEObjectResolvingEList
+			// overrides isUnique() to false to skip that check while keeping every other
+			// EObjectResolvingEList behaviour (proxy resolution, notifications) intact.
+			sourceElements = new NonUniqueEObjectResolvingEList<EObject>(EObject.class, this, Bag12bag2Package.MULTI_ELEM__SOURCE_ELEMENTS);
 		}
 		return sourceElements;
+	}
+
+	/**
+	 * {@link EObjectResolvingEList} variant that skips the O(n)-per-add()
+	 * uniqueness check. See {@link #getSourceElements()} for why this is safe here.
+	 */
+	private static final class NonUniqueEObjectResolvingEList<E> extends EObjectResolvingEList<E> {
+		private static final long serialVersionUID = 1L;
+
+		NonUniqueEObjectResolvingEList(Class<?> dataClass, org.eclipse.emf.ecore.InternalEObject owner, int featureID) {
+			super(dataClass, owner, featureID);
+		}
+
+		@Override
+		public boolean isUnique() {
+			return false;
+		}
 	}
 
 	/**

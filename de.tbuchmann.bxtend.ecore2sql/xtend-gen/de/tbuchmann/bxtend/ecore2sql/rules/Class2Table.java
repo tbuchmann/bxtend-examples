@@ -2,6 +2,7 @@ package de.tbuchmann.bxtend.ecore2sql.rules;
 
 import com.google.common.collect.Iterators;
 import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Corr;
+import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Transformation;
 import java.util.Arrays;
 import java.util.Objects;
 import org.eclipse.emf.common.util.EList;
@@ -96,8 +97,17 @@ public class Class2Table extends Elem2Elem {
    */
   @Override
   public void sourceToTarget() {
+    EObject _transformationElem = this.corrModel.getContents().get(0);
+    final Transformation transformation = (Transformation) _transformationElem;
+    final java.util.Map<EObject, Corr> existingCorrByObj = new java.util.HashMap<>();
+    for (Corr c : transformation.getCorrespondences()) {
+      if (c.getSourceElement() != null) {
+        existingCorrByObj.put(c.getSourceElement(), c);
+      }
+    }
     final Procedure1<EClass> _function = (EClass ec) -> {
-      final Corr corr = this.getOrCreateCorrModelElement(ec, this.ruleID);
+      Corr fromSnapshot = existingCorrByObj.get(ec);
+      final Corr corr = fromSnapshot != null ? fromSnapshot : this.createCorrModelElementDirect(ec, this.ruleID);
       EObject _orCreateTargetElem = this.getOrCreateTargetElem(corr, this.targetPackage.getTable());
       final Table tbl = ((Table) _orCreateTargetElem);
       tbl.setName(ec.getName());
@@ -144,6 +154,14 @@ public class Class2Table extends Elem2Elem {
    */
   @Override
   public void targetToSource() {
+    EObject _transformationElem2 = this.corrModel.getContents().get(0);
+    final Transformation transformation2 = (Transformation) _transformationElem2;
+    final java.util.Map<EObject, Corr> existingCorrByTarget = new java.util.HashMap<>();
+    for (Corr c1 : transformation2.getCorrespondences()) {
+      if (c1.getTargetElement() != null) {
+        existingCorrByTarget.put(c1.getTargetElement(), c1);
+      }
+    }
     final Function1<Table, Boolean> _function = (Table t) -> {
       String _name = t.getName();
       return Boolean.valueOf((!Objects.equals(_name, "EObject")));
@@ -156,7 +174,8 @@ public class Class2Table extends Elem2Elem {
       return Boolean.valueOf(IterableExtensions.<Annotation>exists(it.getOwnedAnnotations(), _function_2));
     };
     final Procedure1<Table> _function_2 = (Table tbl) -> {
-      final Corr corr = this.getOrCreateCorrModelElement(tbl, this.ruleID);
+      Corr fromSnapshot = existingCorrByTarget.get(tbl);
+      final Corr corr = fromSnapshot != null ? fromSnapshot : this.createCorrModelElementDirect(tbl, this.ruleID);
       EObject _orCreateSourceElem = this.getOrCreateSourceElem(corr, this.sourcePackage.getEClass());
       final EClass ec = ((EClass) _orCreateSourceElem);
       ec.setName(tbl.getName());
@@ -313,11 +332,51 @@ public class Class2Table extends Elem2Elem {
    * @param schema the SQL schema to search
    * @return the {@link Table} named {@code "EObject"}, or {@code null} if absent
    */
+  /**
+   * Directly creates and registers a new {@link Corr} for {@code obj} under
+   * {@code description}, without first checking (via getCorrModelElem) whether one already
+   * exists - that check is exactly the O(n) scan-on-miss this method exists to avoid.
+   * Mirrors Elem2Elem.getOrCreateCorrModelElement's creation branch exactly, minus the
+   * existence check. Only safe when the caller has already established, by other means
+   * (a call-scoped snapshot of the correspondence list), that obj provably has no existing
+   * correspondence.
+   */
+  protected Corr createCorrModelElementDirect(final EObject obj, final String description) {
+    de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.BasicElem _createBasicElem = this.corrFactory.createBasicElem();
+    final Procedure1<de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.BasicElem> _function = (de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.BasicElem it) -> {
+      org.eclipse.emf.ecore.EPackage _ePackage = obj.eClass().getEPackage();
+      if (_ePackage instanceof org.eclipse.emf.ecore.EcorePackage) {
+        it.setSourceElement(obj);
+      }
+      org.eclipse.emf.ecore.EPackage _ePackage_1 = obj.eClass().getEPackage();
+      if (_ePackage_1 instanceof sql.SqlPackage) {
+        it.setTargetElement(obj);
+      }
+      it.setDesc(description);
+    };
+    Corr corr = ObjectExtensions.<de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.BasicElem>operator_doubleArrow(_createBasicElem, _function);
+    EObject _get = this.corrModel.getContents().get(0);
+    EList<Corr> _correspondences = ((Transformation) _get).getCorrespondences();
+    _correspondences.add(corr);
+    Elem2Elem.elementsToCorr.put(obj, corr);
+    return corr;
+  }
+
+  private static final java.util.Map<Schema, Table> eObjectTableCache = new java.util.HashMap<>();
+
   public Table eObjectTable(final Schema schema) {
+    Table cached = eObjectTableCache.get(schema);
+    if (cached != null && "EObject".equals(cached.getName())) {
+      return cached;
+    }
     final Function1<Table, Boolean> _function = (Table t) -> {
       return Boolean.valueOf(t.getName().equals("EObject"));
     };
-    return IterableExtensions.<Table>findFirst(schema.getOwnedTables(), _function);
+    Table found = IterableExtensions.<Table>findFirst(schema.getOwnedTables(), _function);
+    if (found != null) {
+      eObjectTableCache.put(schema, found);
+    }
+    return found;
   }
 
   /**

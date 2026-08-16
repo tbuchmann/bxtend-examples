@@ -1,5 +1,7 @@
 package de.tbuchmann.bxtend.ecore2sql.rules
 
+import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Corr
+import de.tbuchmann.bxtend.ecore2sql.correspondence.ecore2sql.Transformation
 import sql.Column
 import sql.NamedElement
 import sql.Schema
@@ -7,6 +9,7 @@ import sql.Table
 import java.util.Arrays
 import org.eclipse.emf.ecore.EAttribute
 import org.eclipse.emf.ecore.EClass
+import org.eclipse.emf.ecore.EObject
 import org.eclipse.emf.ecore.resource.Resource
 import org.eclipse.emf.ecore.util.EcoreUtil
 
@@ -86,10 +89,21 @@ class Attribute2Attribute extends Class2Table {
 	 * the multiplicity kind has changed before creating the new element.</p>
 	 */
 	override sourceToTarget() {
+		// See Class2Table#sourceToTarget for why this snapshot is needed and safe: every
+		// EAttribute is looked up exactly once here, sourceToTarget() calls are never
+		// interleaved, and Class2Table's own pass (which runs before this one) has already
+		// grown the shared correspondence list to one entry per EClass - without this,
+		// every EAttribute's first-ever lookup would rescan that whole (already large)
+		// list, making this rule's contribution to the O(n^2) even worse than Class2Table's.
+		val java.util.Map<EObject, Corr> existingCorrByObj = newHashMap
+		(corrModel.contents.get(0) as Transformation).correspondences.forEach[c |
+			if (c.sourceElement !== null) existingCorrByObj.put(c.sourceElement, c)
+		]
+
 		sourceModel.allContents.filter(typeof(EAttribute))
 			.forEach[att |
-				val corr = att.getOrCreateCorrModelElement(ruleID)
-				
+				val corr = existingCorrByObj.get(att) ?: att.createCorrModelElementDirect(ruleID)
+
 				if (att.upperBound == 1) {
 					val c = corr.getOrCreateTargetElem(targetPackage.column) as NamedElement
 					// wenn col vom Typ Table => inkrementelles Verhalten, EAttribut war vorher mehrwertig...
@@ -143,10 +157,19 @@ class Attribute2Attribute extends Class2Table {
 	 * reconstructed from tables carrying the {@code "multi"} annotation.</p>
 	 */
 	override targetToSource() {
+		// Same rationale/safety argument as Class2Table's targetToSource() snapshot: every
+		// Column/Table is looked up here exactly once and targetToSource() calls are never
+		// interleaved, so a one-time snapshot lets genuinely new elements skip the O(n)
+		// scan-on-miss. Shared across both passes below since both index by targetElement.
+		val java.util.Map<EObject, Corr> existingCorrByObj = newHashMap
+		(corrModel.contents.get(0) as Transformation).correspondences.forEach[c |
+			if (c.targetElement !== null) existingCorrByObj.put(c.targetElement, c)
+		]
+
 		// transform single-valued attributes first (represented by columns in tables)
 		targetModel.allContents.filter(typeof(Column)).filter[ownedAnnotations.exists[annotation == "attribute"]]
 			.forEach[col |
-				val corr = col.getOrCreateCorrModelElement(ruleID)
+				val corr = existingCorrByObj.get(col) ?: col.createCorrModelElementDirect(ruleID)
 				if(corr.sourceElement !== null && !(corr.sourceElement instanceof EAttribute)) {
 					EcoreUtil.delete(corr.sourceElement, true);
 				}
@@ -160,7 +183,7 @@ class Attribute2Attribute extends Class2Table {
 		// transform multi-valued attributes (represented by tables containing the respective annotation
 		targetModel.allContents.filter(typeof(Table)).filter[t | t.ownedAnnotations.exists[a | a.annotation == "multi"] && t.ownedAnnotations.exists[annotation == "attribute"]]
 			.forEach[tab |
-				val corr = tab.getOrCreateCorrModelElement(ruleID)
+				val corr = existingCorrByObj.get(tab) ?: tab.createCorrModelElementDirect(ruleID)
 				if(corr.sourceElement !== null && !(corr.sourceElement instanceof EAttribute)) {
 					EcoreUtil.delete(corr.sourceElement, true);
 				}
